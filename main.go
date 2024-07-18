@@ -19,7 +19,7 @@ import (
 
 func main() {
 	const message = "Hello, MPC!"
-	// N is the number of parties
+	// N is the number of participants
 	N := party.Size(5)
 	// T is the threshold
 	var T party.ID = 2
@@ -27,22 +27,54 @@ func main() {
 	fmt.Printf("Starting MPC Key Generation with N=%d and T=%d\n", N, T)
 
 	partyIDs := helpers.GenerateSet(N)
+	states, outputs := keyGeneration(partyIDs, T)
+
+	secrets := collectSecrets(partyIDs, states, outputs)
+
+	// the group public key and public shares are the same for all parties
+	groupPublicKey := outputs[partyIDs[0]].Public.GroupKey
+	publicShares := outputs[partyIDs[0]].Public
+
+	if err := validateSecrets(secrets, groupPublicKey, publicShares); err != nil {
+		fmt.Println("Validation Error:", err)
+	}
+
+	fmt.Println("Starting MPC Signing...")
+	signature := mpcSigning(partyIDs, outputs, publicShares, message)
+
+	// verification using Ed25519
+	pk := publicShares.GroupKey
+	if !ed25519.Verify(pk.ToEd25519(), []byte(message), signature.ToEd25519()) {
+		fmt.Println("Signature verification failed using ed25519")
+	}
+
+	if !pk.Verify([]byte(message), signature) {
+		fmt.Println("Signature verification failed using custom function")
+	}
+
+	fmt.Println("MPC Key Generation and Signing completed successfully.")
+}
+
+func keyGeneration(partyIDs []party.ID, T party.ID) (map[party.ID]*state.State, map[party.ID]*keygen.Output) {
 	states := map[party.ID]*state.State{}
 	outputs := map[party.ID]*keygen.Output{}
 
+	// initialize key generation states
 	for _, id := range partyIDs {
 		var err error
 		states[id], outputs[id], err = frost.NewKeygenState(id, partyIDs, T, 0)
 		if err != nil {
 			fmt.Println("Keygen Error:", err)
-			return
+			return nil, nil
 		}
 	}
 
-	msgsOut1 := make([][]byte, 0, N)
-	msgsOut2 := make([][]byte, 0, N*(N-1)/2)
+	msgsOut1 := make([][]byte, 0, len(partyIDs))
+	msgsOut2 := make([][]byte, 0, len(partyIDs)*(len(partyIDs)-1)/2)
 
+	// round 1: commit phase
 	for _, s := range states {
+		// initial phase with no input messages
 		msgs1, err := helpers.PartyRoutine(nil, s)
 		if err != nil {
 			fmt.Println("Keygen Error:", err)
@@ -50,7 +82,9 @@ func main() {
 		msgsOut1 = append(msgsOut1, msgs1...)
 	}
 
+	// round 2: share phase
 	for _, s := range states {
+		// Ppocess commitments
 		msgs2, err := helpers.PartyRoutine(msgsOut1, s)
 		if err != nil {
 			fmt.Println("Keygen Error:", err)
@@ -58,6 +92,7 @@ func main() {
 		msgsOut2 = append(msgsOut2, msgs2...)
 	}
 
+	// finalizing key generation
 	for _, s := range states {
 		_, err := helpers.PartyRoutine(msgsOut2, s)
 		if err != nil {
@@ -65,53 +100,57 @@ func main() {
 		}
 	}
 
-	id1 := partyIDs[0]
-	if err := states[id1].WaitForError(); err != nil {
-		fmt.Println("Keygen Error:", err)
-	}
-	groupKey1 := outputs[id1].Public.GroupKey
-	publicShares1 := outputs[id1].Public
+	return states, outputs
+}
+
+func collectSecrets(partyIDs []party.ID, states map[party.ID]*state.State, outputs map[party.ID]*keygen.Output) map[party.ID]*eddsa.SecretShare {
 	secrets := map[party.ID]*eddsa.SecretShare{}
-	for _, id2 := range partyIDs {
-		if err := states[id2].WaitForError(); err != nil {
+	groupPublicKey := outputs[partyIDs[0]].Public.GroupKey
+	publicShares := outputs[partyIDs[0]].Public
+
+	for _, id := range partyIDs {
+		if err := states[id].WaitForError(); err != nil {
 			fmt.Println("Keygen Error:", err)
 		}
-		groupKey2 := outputs[id2].Public.GroupKey
-		publicShares2 := outputs[id2].Public
-		secrets[id2] = outputs[id2].SecretKey
-		if err := CompareOutput(groupKey1, groupKey2, publicShares1, publicShares2); err != nil {
+		groupKey := outputs[id].Public.GroupKey
+		shares := outputs[id].Public
+		secrets[id] = outputs[id].SecretKey
+		if err := compareOutput(groupPublicKey, groupKey, publicShares, shares); err != nil {
 			fmt.Println("Comparison Error:", err)
 		}
 	}
 
-	if err := ValidateSecrets(secrets, groupKey1, publicShares1); err != nil {
-		fmt.Println("Validation Error:", err)
-	}
+	return secrets
+}
 
-	fmt.Println("Starting MPC Signing...")
-	T = N - 1
+func mpcSigning(partyIDs []party.ID, outputs map[party.ID]*keygen.Output, publicShares *eddsa.Public, message string) *eddsa.Signature {
+	N := len(partyIDs)
+	T := N - 1
 
-	signSet := helpers.GenerateSet(T)
+	signSet := helpers.GenerateSet(party.Size(T))
 	secretShares := map[party.ID]*eddsa.SecretShare{}
 	for _, id := range signSet {
 		secretShares[id] = outputs[id].SecretKey
 	}
 
-	states = map[party.ID]*state.State{}
+	states := map[party.ID]*state.State{}
 	signOutputs := map[party.ID]*sign.Output{}
-	msgsOut1 = make([][]byte, 0, N)
-	msgsOut2 = make([][]byte, 0, N)
+	msgsOut1 := make([][]byte, 0, N)
+	msgsOut2 := make([][]byte, 0, N)
 
+	// initialize signing states
 	for _, id := range signSet {
 		var err error
-		states[id], signOutputs[id], err = frost.NewSignState(signSet, secretShares[id], publicShares1, []byte(message), 0)
+		states[id], signOutputs[id], err = frost.NewSignState(signSet, secretShares[id], publicShares, []byte(message), 0)
 		if err != nil {
 			fmt.Println("Sign Error:", err)
 		}
 	}
 
+	// round 1: nonce generation and sharing
 	start := time.Now()
 	for _, s := range states {
+		// nonce generation
 		msgs1, err := helpers.PartyRoutine(nil, s)
 		if err != nil {
 			fmt.Println("Sign Error:", err)
@@ -120,8 +159,10 @@ func main() {
 	}
 	fmt.Println("Finish round 0", time.Since(start))
 
+	// round 2: partial signature generation
 	start = time.Now()
 	for _, s := range states {
+		// process nonces
 		msgs2, err := helpers.PartyRoutine(msgsOut1, s)
 		if err != nil {
 			fmt.Println("Sign Error:", err)
@@ -130,8 +171,10 @@ func main() {
 	}
 	fmt.Println("Finish round 1", time.Since(start))
 
+	// finalizing the signature
 	start = time.Now()
 	for _, s := range states {
+		// generate partial signatures
 		_, err := helpers.PartyRoutine(msgsOut2, s)
 		if err != nil {
 			fmt.Println("Sign Error:", err)
@@ -142,15 +185,7 @@ func main() {
 	sig := signOutputs[signSet[0]].Signature
 	if sig == nil {
 		fmt.Println("Signature is nil")
-		return
-	}
-
-	pk := publicShares1.GroupKey
-	if !ed25519.Verify(pk.ToEd25519(), []byte(message), sig.ToEd25519()) {
-		fmt.Println("Signature verification failed using ed25519")
-	}
-	if !pk.Verify([]byte(message), sig) {
-		fmt.Println("Signature verification failed using custom function")
+		return nil
 	}
 
 	for id, s := range states {
@@ -170,10 +205,11 @@ func main() {
 		}
 	}
 
-	fmt.Println("MPC Key Generation and Signing completed successfully.")
+	return sig
 }
 
-func CompareOutput(groupKey1, groupKey2 *eddsa.PublicKey, publicShares1, publicShares2 *eddsa.Public) error {
+// compareOutput compares the output of key generation from two parties.
+func compareOutput(groupKey1, groupKey2 *eddsa.PublicKey, publicShares1, publicShares2 *eddsa.Public) error {
 	if !publicShares1.Equal(publicShares2) {
 		return errors.New("shares not equal")
 	}
@@ -207,18 +243,19 @@ func CompareOutput(groupKey1, groupKey2 *eddsa.PublicKey, publicShares1, publicS
 	return nil
 }
 
-func ValidateSecrets(secrets map[party.ID]*eddsa.SecretShare, groupKey *eddsa.PublicKey, shares *eddsa.Public) error {
+// validateSecrets validates the combined secret shares using Lagrange Interpolation.
+func validateSecrets(secrets map[party.ID]*eddsa.SecretShare, groupKey *eddsa.PublicKey, shares *eddsa.Public) error {
 	fullSecret := ristretto.NewScalar()
 
 	for id, secret := range secrets {
 		pk1 := &secret.Public
 		pk2, ok := shares.Shares[id]
 		if !ok {
-			return errors.New("party %d has no share")
+			return errors.New("party has no share")
 		}
 
 		if pk1.Equal(pk2) != 1 {
-			return errors.New("pk not the same")
+			return errors.New("public keys are not the same")
 		}
 
 		lagrange, err := id.Lagrange(shares.PartyIDs)
@@ -230,7 +267,7 @@ func ValidateSecrets(secrets map[party.ID]*eddsa.SecretShare, groupKey *eddsa.Pu
 
 	fullPk := eddsa.NewPublicKeyFromPoint(new(ristretto.Element).ScalarBaseMult(fullSecret))
 	if !groupKey.Equal(fullPk) {
-		return errors.New("computed groupKey does not match")
+		return errors.New("computed group key does not match")
 	}
 
 	return nil
