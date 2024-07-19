@@ -84,6 +84,10 @@ The protocol involves multiple rounds of communication among participants for bo
 
 Participants send their partial signature to a designated combiner (or each other with the peer-to-peer approach). The partial signatures are combined to create the final signature.
 
+**Requirement for $T+1$ Participants**:
+
+In the FROST implementation, the slice of party IDs involved in the signing process must be of length at least $T+1$. This is presumably a requirement from Shamir's Secret Sharing for sufficient shares to reconstruct the group secret.
+
 ### Combining Partial Signatures for Schnorr Signatures
 
 1. **Aggregation of Nonces**: The combiner aggregates the public nonces received from all participants. The aggregated nonce $R$ is computed as $R = \sum_{i} R_i$, where $R_i$ are the public nonces from each participant.

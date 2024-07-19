@@ -5,6 +5,7 @@ import (
 	"crypto/ed25519"
 	"errors"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/taurusgroup/frost-ed25519/pkg/eddsa"
@@ -19,15 +20,14 @@ import (
 
 func main() {
 	const message = "Hello, MPC!"
-	// N is the number of participants
-	N := party.Size(5)
-	// T is the threshold
-	var T party.ID = 2
+
+	N := party.Size(8)
+	T := 2
 
 	fmt.Printf("Starting MPC Key Generation with N=%d and T=%d\n", N, T)
 
 	partyIDs := helpers.GenerateSet(N)
-	states, outputs := keyGeneration(partyIDs, T)
+	states, outputs := keyGeneration(partyIDs, party.ID(T))
 
 	secrets := collectSecrets(partyIDs, states, outputs)
 
@@ -40,22 +40,31 @@ func main() {
 	}
 
 	fmt.Println("Starting MPC Signing...")
-	signature := mpcSigning(partyIDs, outputs, publicShares, message)
 
-	// verification using Ed25519
+	// note, this needs T+1 parties
+	signature, err := mpcSigning(partyIDs[:T+1], outputs, publicShares, message)
+	if err != nil {
+		fmt.Println("MPC Signing Error:", err)
+		os.Exit(1)
+	}
+
+	// verification using the Go standard library crypto/ed25519
 	pk := publicShares.GroupKey
 	if !ed25519.Verify(pk.ToEd25519(), []byte(message), signature.ToEd25519()) {
 		fmt.Println("Signature verification failed using ed25519")
+		os.Exit(1)
 	}
 
 	if !pk.Verify([]byte(message), signature) {
 		fmt.Println("Signature verification failed using custom function")
+		os.Exit(1)
 	}
 
 	fmt.Println("MPC Key Generation and Signing completed successfully.")
 }
 
 func keyGeneration(partyIDs []party.ID, T party.ID) (map[party.ID]*state.State, map[party.ID]*keygen.Output) {
+	N := len(partyIDs)
 	states := map[party.ID]*state.State{}
 	outputs := map[party.ID]*keygen.Output{}
 
@@ -69,8 +78,8 @@ func keyGeneration(partyIDs []party.ID, T party.ID) (map[party.ID]*state.State, 
 		}
 	}
 
-	msgsOut1 := make([][]byte, 0, len(partyIDs))
-	msgsOut2 := make([][]byte, 0, len(partyIDs)*(len(partyIDs)-1)/2)
+	msgsOut1 := make([][]byte, 0, N)
+	msgsOut2 := make([][]byte, 0, N*(N-1)/2)
 
 	// round 1: commit phase
 	for _, s := range states {
@@ -84,7 +93,7 @@ func keyGeneration(partyIDs []party.ID, T party.ID) (map[party.ID]*state.State, 
 
 	// round 2: share phase
 	for _, s := range states {
-		// Ppocess commitments
+		// process commitments
 		msgs2, err := helpers.PartyRoutine(msgsOut1, s)
 		if err != nil {
 			fmt.Println("Keygen Error:", err)
@@ -123,11 +132,10 @@ func collectSecrets(partyIDs []party.ID, states map[party.ID]*state.State, outpu
 	return secrets
 }
 
-func mpcSigning(partyIDs []party.ID, outputs map[party.ID]*keygen.Output, publicShares *eddsa.Public, message string) *eddsa.Signature {
+func mpcSigning(partyIDs []party.ID, outputs map[party.ID]*keygen.Output, publicShares *eddsa.Public, message string) (*eddsa.Signature, error) {
 	N := len(partyIDs)
-	T := N - 1
+	signSet := partyIDs
 
-	signSet := helpers.GenerateSet(party.Size(T))
 	secretShares := map[party.ID]*eddsa.SecretShare{}
 	for _, id := range signSet {
 		secretShares[id] = outputs[id].SecretKey
@@ -143,7 +151,7 @@ func mpcSigning(partyIDs []party.ID, outputs map[party.ID]*keygen.Output, public
 		var err error
 		states[id], signOutputs[id], err = frost.NewSignState(signSet, secretShares[id], publicShares, []byte(message), 0)
 		if err != nil {
-			fmt.Println("Sign Error:", err)
+			return nil, fmt.Errorf("sign error: %v", err)
 		}
 	}
 
@@ -153,7 +161,7 @@ func mpcSigning(partyIDs []party.ID, outputs map[party.ID]*keygen.Output, public
 		// nonce generation
 		msgs1, err := helpers.PartyRoutine(nil, s)
 		if err != nil {
-			fmt.Println("Sign Error:", err)
+			return nil, fmt.Errorf("sign error: %v", err)
 		}
 		msgsOut1 = append(msgsOut1, msgs1...)
 	}
@@ -165,7 +173,7 @@ func mpcSigning(partyIDs []party.ID, outputs map[party.ID]*keygen.Output, public
 		// process nonces
 		msgs2, err := helpers.PartyRoutine(msgsOut1, s)
 		if err != nil {
-			fmt.Println("Sign Error:", err)
+			return nil, fmt.Errorf("sign error: %v", err)
 		}
 		msgsOut2 = append(msgsOut2, msgs2...)
 	}
@@ -177,35 +185,34 @@ func mpcSigning(partyIDs []party.ID, outputs map[party.ID]*keygen.Output, public
 		// generate partial signatures
 		_, err := helpers.PartyRoutine(msgsOut2, s)
 		if err != nil {
-			fmt.Println("Sign Error:", err)
+			return nil, fmt.Errorf("sign error: %v", err)
 		}
 	}
 	fmt.Println("Finish round 2", time.Since(start))
 
 	sig := signOutputs[signSet[0]].Signature
 	if sig == nil {
-		fmt.Println("Signature is nil")
-		return nil
+		return nil, errors.New("signature is nil")
 	}
 
 	for id, s := range states {
 		if err := s.WaitForError(); err != nil {
-			fmt.Println("Sign Error:", err)
+			return nil, fmt.Errorf("sign error: %v", err)
 		}
 
 		comparedSig := signOutputs[id].Signature
 		sigBytes, err := sig.MarshalBinary()
 		if err != nil {
-			fmt.Println("Sign Error:", err)
+			return nil, fmt.Errorf("sign error: %v", err)
 		}
 
 		comparedSigBytes, _ := comparedSig.MarshalBinary()
 		if !bytes.Equal(sigBytes, comparedSigBytes) {
-			fmt.Println("Signatures are not the same")
+			return nil, errors.New("signatures are not the same")
 		}
 	}
 
-	return sig
+	return sig, nil
 }
 
 // compareOutput compares the output of key generation from two parties.
