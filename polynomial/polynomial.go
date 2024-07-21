@@ -4,8 +4,8 @@ import (
 	"crypto/rand"
 	"fmt"
 
-	"github.com/taurusgroup/frost-ed25519/pkg/frost/party"
-	"github.com/taurusgroup/frost-ed25519/pkg/ristretto"
+	"github.com/bartke/threshold-signatures-ed25519/party"
+	"github.com/bartke/threshold-signatures-ed25519/ristretto"
 )
 
 type Polynomial struct {

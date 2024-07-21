@@ -6,13 +6,11 @@ import (
 
 	"errors"
 
+	"github.com/bartke/threshold-signatures-ed25519/party"
 	"github.com/bartke/threshold-signatures-ed25519/polynomial"
+	"github.com/bartke/threshold-signatures-ed25519/ristretto"
 	"github.com/bartke/threshold-signatures-ed25519/zk"
-	"github.com/taurusgroup/frost-ed25519/pkg/frost/party"
-	"github.com/taurusgroup/frost-ed25519/pkg/ristretto"
 )
-
-const headerSize = 1 + 2*party.IDByteSize
 
 type Header struct {
 	// Type is the message type
@@ -72,25 +70,6 @@ func (h *Header) UnmarshalJSON(data []byte) error {
 	return err
 }
 
-func (h *Header) size() int {
-	return headerSize
-}
-
-func (h *Header) equal(other interface{}) bool {
-	if otherMsg, ok := other.(Header); ok {
-		return *h == otherMsg
-	}
-	if otherMsg, ok := other.(*Header); ok {
-		return *h == *otherMsg
-	}
-	return false
-}
-
-// IsBroadcast returns true if the message is intended to be broadcast
-func (h *Header) IsBroadcast() bool {
-	return h.To == 0
-}
-
 type Message struct {
 	Header
 	KeyGen1 *KeyGen1
@@ -112,29 +91,6 @@ const (
 	MessageTypeSign2
 )
 
-func (m *Message) Size() int {
-	var size int
-	switch m.Type {
-	case MessageTypeKeyGen2:
-		if m.KeyGen2 != nil {
-			size += m.KeyGen2.size()
-		}
-		fallthrough
-	case MessageTypeKeyGen1:
-		if m.KeyGen1 != nil {
-			size += m.KeyGen1.size()
-		}
-		//case MessageTypeSign1:
-		//	if m.Sign1 != nil {
-		//		size = m.Sign1.Size()
-		//	}
-		//case MessageTypeSign2:
-		//	if m.Sign2 != nil {
-		//		size = m.Sign2.Size()
-		//	}
-	}
-	return m.Header.size() + size
-}
 func (m *Message) MarshalJSON() ([]byte, error) {
 	return json.Marshal(&struct {
 		Header  Header   `json:"header"`
@@ -161,41 +117,6 @@ func (m *Message) UnmarshalJSON(data []byte) error {
 	m.KeyGen2 = aux.KeyGen2
 
 	return nil
-}
-
-func (m *Message) Equal(other interface{}) bool {
-	otherMsg, ok := other.(*Message)
-	if !ok {
-		return false
-	}
-
-	if !m.Header.equal(otherMsg.Header) {
-		return false
-	}
-
-	switch m.Type {
-	case MessageTypeKeyGen2:
-		if m.KeyGen2 != nil && otherMsg.KeyGen2 != nil {
-			if !m.KeyGen2.equal(otherMsg.KeyGen2) {
-				return false
-			}
-		}
-
-		fallthrough
-	case MessageTypeKeyGen1:
-		if m.KeyGen1 != nil && otherMsg.KeyGen1 != nil {
-			return m.KeyGen1.equal(otherMsg.KeyGen1)
-		}
-		//case MessageTypeSign1:
-		//	if m.Sign1 != nil && otherMsg.Sign1 != nil {
-		//		return m.Sign1.Equal(otherMsg.Sign1)
-		//	}
-		//case MessageTypeSign2:
-		//	if m.Sign2 != nil && otherMsg.Sign2 != nil {
-		//		return m.Sign2.Equal(otherMsg.Sign2)
-		//	}
-	}
-	return false
 }
 
 type KeyGen1 struct {
@@ -262,26 +183,6 @@ func (m *KeyGen1) UnmarshalJSON(data []byte) error {
 	return m.Commitments.UnmarshalBinary(commitmentsBytes)
 }
 
-func (m *KeyGen1) size() int {
-	return m.Proof.Size() + m.Commitments.Size()
-}
-
-func (m *KeyGen1) equal(other interface{}) bool {
-	otherMsg, ok := other.(*KeyGen1)
-	if !ok {
-		return false
-	}
-	if !otherMsg.Proof.Equal(m.Proof) {
-		return false
-	}
-	if !otherMsg.Commitments.Equal(m.Commitments) {
-		return false
-	}
-	return true
-}
-
-const sizeKeygen2 = 32
-
 type KeyGen2 struct {
 	// Share is a Shamir additive share for the destination party
 	Share ristretto.Scalar
@@ -321,19 +222,4 @@ func (m *KeyGen2) UnmarshalJSON(data []byte) error {
 	}
 	_, err = m.Share.SetCanonicalBytes(shareBytes)
 	return err
-}
-
-func (m *KeyGen2) size() int {
-	return sizeKeygen2
-}
-
-func (m *KeyGen2) equal(other interface{}) bool {
-	otherMsg, ok := other.(*KeyGen2)
-	if !ok {
-		return false
-	}
-	if otherMsg.Share.Equal(&m.Share) != 1 {
-		return false
-	}
-	return true
 }

@@ -3,10 +3,10 @@ package zk
 import (
 	"testing"
 
+	"github.com/bartke/threshold-signatures-ed25519/party"
+	"github.com/bartke/threshold-signatures-ed25519/ristretto"
 	"github.com/bartke/threshold-signatures-ed25519/scalar"
 	"github.com/stretchr/testify/require"
-	"github.com/taurusgroup/frost-ed25519/pkg/frost/party"
-	"github.com/taurusgroup/frost-ed25519/pkg/ristretto"
 )
 
 func TestSchnorrProof(t *testing.T) {

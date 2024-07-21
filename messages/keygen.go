@@ -6,12 +6,12 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/bartke/threshold-signatures-ed25519/eddsa"
+	"github.com/bartke/threshold-signatures-ed25519/party"
 	"github.com/bartke/threshold-signatures-ed25519/polynomial"
+	"github.com/bartke/threshold-signatures-ed25519/ristretto"
 	"github.com/bartke/threshold-signatures-ed25519/scalar"
 	"github.com/bartke/threshold-signatures-ed25519/zk"
-	"github.com/taurusgroup/frost-ed25519/pkg/eddsa"
-	"github.com/taurusgroup/frost-ed25519/pkg/frost/party"
-	"github.com/taurusgroup/frost-ed25519/pkg/ristretto"
 )
 
 type State struct {

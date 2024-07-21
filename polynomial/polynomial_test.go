@@ -1,19 +1,18 @@
-package polynomial_test
+package polynomial
 
 import (
 	"encoding/binary"
 	"testing"
 
-	"github.com/bartke/threshold-signatures-ed25519/polynomial"
+	"github.com/bartke/threshold-signatures-ed25519/party"
+	"github.com/bartke/threshold-signatures-ed25519/ristretto"
 	"github.com/bartke/threshold-signatures-ed25519/scalar"
 	"github.com/stretchr/testify/assert"
-	"github.com/taurusgroup/frost-ed25519/pkg/frost/party"
-	"github.com/taurusgroup/frost-ed25519/pkg/ristretto"
 )
 
 func TestPolynomial_Evaluate(t *testing.T) {
 	{
-		polynomial := &polynomial.Polynomial{make([]ristretto.Scalar, 3)}
+		polynomial := &Polynomial{make([]ristretto.Scalar, 3)}
 		polynomial.coefficients[0] = *scalar.NewScalarUInt32(1)
 		polynomial.coefficients[1] = *scalar.NewScalarUInt32(0)
 		polynomial.coefficients[2] = *scalar.NewScalarUInt32(1)

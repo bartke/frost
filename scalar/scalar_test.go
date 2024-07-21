@@ -3,9 +3,9 @@ package scalar
 import (
 	"testing"
 
+	"github.com/bartke/threshold-signatures-ed25519/ristretto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/taurusgroup/frost-ed25519/pkg/ristretto"
 )
 
 func TestNewScalarUInt32(t *testing.T) {
