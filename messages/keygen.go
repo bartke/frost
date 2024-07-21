@@ -213,7 +213,6 @@ func Round1(state *State, inputMsgs []*Message) ([]*Message, *ristretto.Scalar, 
 
 		share := state.Polynomial.Evaluate(msg.From.Scalar())
 		keygen2 := NewKeyGen2(state.SelfID, msg.From, share)
-		keygen2.KeyGen1 = msg.KeyGen1
 		msgsOut = append(msgsOut, keygen2)
 	}
 
