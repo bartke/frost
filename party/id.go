@@ -63,6 +63,14 @@ func FromBytes(b []byte) (ID, error) {
 	return id, nil
 }
 
+func FromString(s string) (ID, error) {
+	id, err := strconv.ParseUint(s, 10, 16)
+	if err != nil {
+		return 0, fmt.Errorf("party.FromString: %v", err)
+	}
+	return ID(id), nil
+}
+
 // RandID returns a pseudo-random value as a ID
 // from the default Source.
 func RandID() ID {

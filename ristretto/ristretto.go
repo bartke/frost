@@ -23,6 +23,11 @@ import (
 
 type Scalar = edwards25519.Scalar
 
+var (
+	Zero     = NewScalar()
+	Identity = NewIdentityElement()
+)
+
 func NewScalar() *Scalar {
 	return edwards25519.NewScalar()
 }

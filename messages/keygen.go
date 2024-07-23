@@ -225,19 +225,7 @@ func Round1(state *State, inputMsgs []*Message) ([]*Message, *ristretto.Scalar, 
 
 // Round 2: Processing KeyGen2 messages and finalizing the key generation
 func Round2(state *State, inputMsgs []*Message, secret *ristretto.Scalar) (*eddsa.Public, *eddsa.SecretShare, error) {
-	// commitments := make(map[party.ID]*polynomial.Exponent)
-	// var commitmentsSum *polynomial.Exponent = polynomial.NewPolynomialExponent(state.Polynomial)
-
-	// re-process keygen1 messages for commitments
-	// for _, msg := range inputMsgs {
-	// 	if msg.KeyGen1 != nil {
-	// 		commitments[msg.From] = msg.KeyGen1.Commitments
-	// 		commitmentsSum.Add(msg.KeyGen1.Commitments)
-	// 	} else {
-	// 		return nil, nil, errors.New("missing KeyGen1 message for commitments")
-	// 	}
-	// }
-
+	// process KeyGen2 messages
 	for _, msg := range inputMsgs {
 		if msg.Type != MessageTypeKeyGen2 {
 			return nil, nil, errors.New("invalid message type for round 2")
@@ -261,7 +249,7 @@ func Round2(state *State, inputMsgs []*Message, secret *ristretto.Scalar) (*edds
 		}
 
 		secret.Add(secret, &msg.KeyGen2.Share)
-		msg.KeyGen2.Share.Set(ristretto.NewScalar())
+		msg.KeyGen2.Share.Set(ristretto.Zero)
 	}
 
 	shares := make(map[party.ID]*ristretto.Element, len(state.Commitments))

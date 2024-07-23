@@ -16,10 +16,10 @@ func NewIDSlice(partyIDs []ID) IDSlice {
 
 // Contains returns true if id is included in the slice.
 func (ids IDSlice) Contains(id ID) bool {
-	n := len(ids)
-	i := sort.Search(n, func(i int) bool { return ids[i] >= id })
-	if i < n && ids[i] == id {
-		return true
+	for _, i := range ids {
+		if i == id {
+			return true
+		}
 	}
 	return false
 }

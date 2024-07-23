@@ -108,6 +108,7 @@ func keyGenRound2(state *messages.State, inputFiles []string, secretFile string,
 	secData, _ := sec.MarshalBinary()
 	writeFile(outputFile+"_sec.dat", secData)
 }
+
 func main() {
 	var (
 		id         = flag.Int("id", 0, "Participant ID")
