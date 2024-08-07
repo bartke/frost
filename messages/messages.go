@@ -208,11 +208,10 @@ func NewKeyGen2(from, to party.ID, share *ristretto.Scalar) *Message {
 }
 
 func (m *KeyGen2) MarshalJSON() ([]byte, error) {
-	shareBytes := m.Share.Bytes()
 	return json.Marshal(&struct {
 		Share string `json:"share"`
 	}{
-		Share: base64.StdEncoding.EncodeToString(shareBytes),
+		Share: base64.StdEncoding.EncodeToString(m.Share.Bytes()),
 	})
 }
 
@@ -224,12 +223,11 @@ func (m *KeyGen2) UnmarshalJSON(data []byte) error {
 		return err
 	}
 
-	shareBytes, err := base64.StdEncoding.DecodeString(aux.Share)
-	if err != nil {
+	if err := decodeScalar(aux.Share, &m.Share); err != nil {
 		return err
 	}
-	_, err = m.Share.SetCanonicalBytes(shareBytes)
-	return err
+
+	return nil
 }
 
 type Sign1 struct {
@@ -252,40 +250,28 @@ func NewSign1(from party.ID, commitmentD, commitmentE *ristretto.Element) *Messa
 }
 
 func (m *Sign1) MarshalJSON() ([]byte, error) {
-	diBytes := m.Di.Bytes()
-	eiBytes := m.Ei.Bytes()
 	return json.Marshal(&struct {
-		Di string `json:"di"`
-		Ei string `json:"ei"`
+		Di ristretto.Element `json:"di"`
+		Ei ristretto.Element `json:"ei"`
 	}{
-		Di: base64.StdEncoding.EncodeToString(diBytes),
-		Ei: base64.StdEncoding.EncodeToString(eiBytes),
+		Di: m.Di,
+		Ei: m.Ei,
 	})
 }
 
 func (m *Sign1) UnmarshalJSON(data []byte) error {
 	aux := &struct {
-		Di string `json:"di"`
-		Ei string `json:"ei"`
+		Di ristretto.Element `json:"di"`
+		Ei ristretto.Element `json:"ei"`
 	}{}
 	if err := json.Unmarshal(data, aux); err != nil {
 		return err
 	}
 
-	diBytes, err := base64.StdEncoding.DecodeString(aux.Di)
-	if err != nil {
-		return err
-	}
-	if _, err := m.Di.SetCanonicalBytes(diBytes); err != nil {
-		return err
-	}
+	m.Di = aux.Di
+	m.Ei = aux.Ei
 
-	eiBytes, err := base64.StdEncoding.DecodeString(aux.Ei)
-	if err != nil {
-		return err
-	}
-	_, err = m.Ei.SetCanonicalBytes(eiBytes)
-	return err
+	return nil
 }
 
 type Sign2 struct {
@@ -305,11 +291,10 @@ func NewSign2(from party.ID, signatureShare *ristretto.Scalar) *Message {
 }
 
 func (m *Sign2) MarshalJSON() ([]byte, error) {
-	ziBytes := m.Zi.Bytes()
 	return json.Marshal(&struct {
 		Zi string `json:"zi"`
 	}{
-		Zi: base64.StdEncoding.EncodeToString(ziBytes),
+		Zi: base64.StdEncoding.EncodeToString(m.Zi.Bytes()),
 	})
 }
 
@@ -321,10 +306,9 @@ func (m *Sign2) UnmarshalJSON(data []byte) error {
 		return err
 	}
 
-	ziBytes, err := base64.StdEncoding.DecodeString(aux.Zi)
-	if err != nil {
+	if err := decodeScalar(aux.Zi, &m.Zi); err != nil {
 		return err
 	}
-	_, err = m.Zi.SetCanonicalBytes(ziBytes)
-	return err
+
+	return nil
 }

@@ -112,7 +112,7 @@ func (s *State) UnmarshalJSON(data []byte) error {
 		return err
 	}
 
-	_, err = s.Secret.SetBytesWithClamping(secretBytes)
+	_, err = s.Secret.SetCanonicalBytes(secretBytes)
 	if err != nil {
 		return err
 	}
@@ -154,77 +154,76 @@ func (s *State) UnmarshalJSON(data []byte) error {
 
 // Round 0: Initializing participants
 func Round0(selfID party.ID, n, t party.Size) (*Message, *State, error) {
-	var secret ristretto.Scalar
-	scalar.SetScalarRandom(&secret)
-
-	poly := polynomial.NewPolynomial(t, &secret)
-	comm := polynomial.NewPolynomialExponent(poly)
-
-	ctx := make([]byte, 32) // context to prevent replay attacks
-	public := comm.Constant()
-	proof := zk.NewSchnorrProof(selfID, public, ctx, &secret)
-
-	// We use the variable Secret to hold the sum of all shares received.
-	// Therefore, we can set it to the share we would send to our selves.
-	secret = ristretto.Scalar{}
-	secret.Set(poly.Evaluate(selfID.Scalar()))
-
 	partyIDs := make([]party.ID, 0, n)
 	for i := party.ID(1); i <= n; i++ {
 		partyIDs = append(partyIDs, i)
 	}
 
-	state := &State{selfID, partyIDs, t, poly, secret, nil, nil}
-	return NewKeyGen1(selfID, proof, comm), state, nil
+	state := &State{
+		SelfID:    selfID,
+		PartyIDs:  partyIDs,
+		Threshold: t,
+	}
+
+	scalar.SetScalarRandom(&state.Secret)
+
+	state.Polynomial = polynomial.NewPolynomial(t, &state.Secret)
+	state.CommitmentsSum = polynomial.NewPolynomialExponent(state.Polynomial)
+
+	ctx := make([]byte, 32) // context to prevent replay attacks
+	public := state.CommitmentsSum.Constant()
+	proof := zk.NewSchnorrProof(selfID, public, ctx, &state.Secret)
+
+	// We use the variable Secret to hold the sum of all shares received.
+	// Therefore, we can set it to the share we would send to our selves.
+	state.Secret.Set(state.Polynomial.Evaluate(selfID.Scalar()))
+
+	return NewKeyGen1(selfID, proof, state.CommitmentsSum), state, nil
 }
 
 // Round 1: Processing KeyGen1 messages and generating KeyGen2 messages
-func Round1(state *State, inputMsgs []*Message) ([]*Message, *ristretto.Scalar, *State, error) {
-	commitments := make(map[party.ID]*polynomial.Exponent, len(inputMsgs))
-	var commitmentsSum *polynomial.Exponent = polynomial.NewPolynomialExponent(state.Polynomial)
-	var secret ristretto.Scalar
-
+func Round1(state *State, inputMsgs []*Message) ([]*Message, *State, error) {
 	// process KeyGen1 messages
 	for _, msg := range inputMsgs {
-		from := msg.From
-		if from == state.SelfID {
+		id := msg.From
+		if id == state.SelfID {
 			continue
 		}
+
 		if msg.Type != MessageTypeKeyGen1 {
-			return nil, nil, nil, errors.New("invalid message type for round 1")
+			return nil, nil, errors.New("invalid message type for round 1")
 		}
+
 		public := msg.KeyGen1.Commitments.Constant()
 		ctx := make([]byte, 32)
 
-		if !msg.KeyGen1.Proof.Verify(from, public, ctx) {
-			return nil, nil, nil, errors.New("ZK Schnorr verification failed")
+		if !msg.KeyGen1.Proof.Verify(id, public, ctx) {
+			return nil, nil, errors.New("ZK Schnorr verification failed")
 		}
 
-		commitments[from] = msg.KeyGen1.Commitments
-		commitmentsSum.Add(msg.KeyGen1.Commitments)
+		state.Commitments[id] = msg.KeyGen1.Commitments
+		state.CommitmentsSum.Add(msg.KeyGen1.Commitments)
 	}
 
 	// generate KeyGen2 messages
-	msgsOut := make([]*Message, 0, len(inputMsgs)-1)
-	for _, msg := range inputMsgs {
-		if msg.From == state.SelfID {
+	msgsOut := make([]*Message, 0, len(state.PartyIDs)-1)
+	for _, id := range state.PartyIDs {
+		if id == state.SelfID {
 			continue
 		}
 
-		share := state.Polynomial.Evaluate(msg.From.Scalar())
-		keygen2 := NewKeyGen2(state.SelfID, msg.From, share)
+		share := state.Polynomial.Evaluate(id.Scalar())
+		keygen2 := NewKeyGen2(state.SelfID, id, share)
 		msgsOut = append(msgsOut, keygen2)
 	}
 
-	secret.Set(state.Polynomial.Evaluate(state.SelfID.Scalar()))
-	state.Commitments = commitments
-	state.CommitmentsSum = commitmentsSum
+	state.Secret.Set(state.Polynomial.Evaluate(state.SelfID.Scalar()))
 
-	return msgsOut, &secret, state, nil
+	return msgsOut, state, nil
 }
 
 // Round 2: Processing KeyGen2 messages and finalizing the key generation
-func Round2(state *State, inputMsgs []*Message, secret *ristretto.Scalar) (*eddsa.Public, *eddsa.SecretShare, error) {
+func Round2(state *State, inputMsgs []*Message) (*eddsa.Public, *eddsa.SecretShare, error) {
 	// process KeyGen2 messages
 	for _, msg := range inputMsgs {
 		if msg.Type != MessageTypeKeyGen2 {
@@ -235,21 +234,22 @@ func Round2(state *State, inputMsgs []*Message, secret *ristretto.Scalar) (*edds
 			continue
 		}
 
+		id := msg.From
 		var computedShareExp ristretto.Element
 		computedShareExp.ScalarBaseMult(&msg.KeyGen2.Share)
 
-		if _, ok := state.Commitments[msg.From]; !ok {
-			return nil, nil, fmt.Errorf("missing commitment for party %d", msg.From)
+		if _, ok := state.Commitments[id]; !ok {
+			return nil, nil, fmt.Errorf("missing commitment for party %d", id)
 		}
 
-		shareExp := state.Commitments[msg.From].Evaluate(state.SelfID.Scalar())
+		shareExp := state.Commitments[id].Evaluate(state.SelfID.Scalar())
 		if computedShareExp.Equal(shareExp) != 1 {
 			// Verifiable Secret Sharing (VSS) validation failed
 			return nil, nil, errors.New("VSS validation failed")
 		}
 
-		secret.Add(secret, &msg.KeyGen2.Share)
-		msg.KeyGen2.Share.Set(ristretto.Zero)
+		state.Secret.Add(&state.Secret, &msg.KeyGen2.Share)
+		// msg.KeyGen2.Share.Set(ristretto.NewScalar())
 	}
 
 	shares := make(map[party.ID]*ristretto.Element, len(state.Commitments))
@@ -259,11 +259,11 @@ func Round2(state *State, inputMsgs []*Message, secret *ristretto.Scalar) (*edds
 
 	pub := &eddsa.Public{
 		PartyIDs:  state.PartyIDs,
-		Threshold: party.Size(state.Threshold),
+		Threshold: state.Threshold,
 		Shares:    shares,
 		GroupKey:  eddsa.NewPublicKeyFromPoint(state.CommitmentsSum.Constant()),
 	}
 
-	sec := eddsa.NewSecretShare(state.SelfID, secret)
+	sec := eddsa.NewSecretShare(state.SelfID, &state.Secret)
 	return pub, sec, nil
 }

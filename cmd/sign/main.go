@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/base64"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -11,7 +10,6 @@ import (
 	"github.com/bartke/threshold-signatures-ed25519/eddsa"
 	"github.com/bartke/threshold-signatures-ed25519/messages"
 	"github.com/bartke/threshold-signatures-ed25519/party"
-	"github.com/bartke/threshold-signatures-ed25519/ristretto"
 )
 
 // Function to write data to a file
@@ -25,7 +23,7 @@ func readFile(filename string) ([]byte, error) {
 }
 
 // Initialize participant for signing round 0
-func initSigner(id party.ID, signers party.IDSlice, secretFile, sharesFile, messageFile, outputFile, stateFile string) {
+func initSigner(signers party.IDSlice, secretFile, sharesFile, messageFile, outputFile, stateFile string) {
 	secretData, err := readFile(secretFile)
 	if err != nil {
 		fmt.Println("Error reading secret:", err)
@@ -42,11 +40,8 @@ func initSigner(id party.ID, signers party.IDSlice, secretFile, sharesFile, mess
 		fmt.Println("Error reading shares:", err)
 		return
 	}
-	var shares struct {
-		T        int               `json:"t"`
-		GroupKey string            `json:"groupkey"`
-		Shares   map[string]string `json:"shares"`
-	}
+
+	var shares eddsa.Public
 	if err := json.Unmarshal(sharesData, &shares); err != nil {
 		fmt.Println("Error unmarshaling shares:", err)
 		return
@@ -58,50 +53,7 @@ func initSigner(id party.ID, signers party.IDSlice, secretFile, sharesFile, mess
 		return
 	}
 
-	// Convert group key and shares to required format
-	var groupKey ristretto.Element
-	groupKeyBytes, err := base64.StdEncoding.DecodeString(shares.GroupKey)
-	if err != nil {
-		fmt.Println("Error decoding group key:", err)
-		return
-	}
-	if _, err := groupKey.SetCanonicalBytes(groupKeyBytes); err != nil {
-		fmt.Println("Error unmarshaling group key:", err)
-		return
-	}
-
-	pub := eddsa.Public{
-		Threshold: party.Size(shares.T),
-		GroupKey:  eddsa.NewPublicKeyFromPoint(&groupKey),
-		Shares:    make(map[party.ID]*ristretto.Element),
-	}
-
-	var parties party.IDSlice
-	for idStr, partyStr := range shares.Shares {
-		id, err := party.FromString(idStr)
-		if err != nil {
-			fmt.Println("Error parsing party ID:", err)
-			return
-		}
-
-		parties = append(parties, id)
-
-		shareBytes, err := base64.StdEncoding.DecodeString(partyStr)
-		if err != nil {
-			fmt.Println("Error decoding share:", err)
-			return
-		}
-		var share ristretto.Element
-		if _, err := share.SetCanonicalBytes(shareBytes); err != nil {
-			fmt.Println("Error unmarshaling share:", err)
-			return
-		}
-		pub.Shares[id] = &share
-	}
-
-	pub.PartyIDs = parties
-
-	msg, state, err := messages.SignRound0(signers, &secret, &pub, message)
+	msg, state, err := messages.SignRound0(signers, &secret, &shares, message)
 	if err != nil {
 		fmt.Println("Error initializing signer:", err)
 		return
@@ -135,7 +87,11 @@ func signRound1(state *messages.SignerState, inputFiles []string, outputFile, st
 	writeFile(outputFile, outMsgData)
 
 	// Save state to file
-	stateData, _ := state.MarshalJSON()
+	stateData, err := state.MarshalJSON()
+	if err != nil {
+		fmt.Println("Error marshaling state:", err)
+		return
+	}
 	writeFile(stateFile, stateData)
 }
 
@@ -181,7 +137,7 @@ func main() {
 
 	flag.Parse()
 
-	if *id == 0 || *outputFile == "" {
+	if *id == 0 && !*init || *outputFile == "" {
 		fmt.Println("Participant ID and output file are required")
 		return
 	}
@@ -190,8 +146,6 @@ func main() {
 		fmt.Println("Signers are required for initialization")
 		return
 	}
-
-	participantID := party.ID(*id)
 
 	if *init {
 		if *secretFile == "" || *sharesFile == "" || *messageFile == "" {
@@ -210,7 +164,7 @@ func main() {
 			signerIDs = append(signerIDs, partyID)
 		}
 
-		initSigner(participantID, signerIDs, *secretFile, *sharesFile, *messageFile, *outputFile, *stateFile)
+		initSigner(signerIDs, *secretFile, *sharesFile, *messageFile, *outputFile, *stateFile)
 	} else if *round1 {
 		if *inputFiles == "" || *stateFile == "" {
 			fmt.Println("Input files and state file are required for round 1")
@@ -220,7 +174,10 @@ func main() {
 
 		stateData, _ := readFile(*stateFile)
 		var state messages.SignerState
-		state.UnmarshalJSON(stateData)
+		if err := state.UnmarshalJSON(stateData); err != nil {
+			fmt.Println("Error unmarshaling state:", err)
+			return
+		}
 
 		signRound1(&state, files, *outputFile, *stateFile)
 	} else if *round2 {
@@ -232,7 +189,10 @@ func main() {
 
 		stateData, _ := readFile(*stateFile)
 		var state messages.SignerState
-		state.UnmarshalJSON(stateData)
+		if err := state.UnmarshalJSON(stateData); err != nil {
+			fmt.Println("Error unmarshaling state:", err)
+			return
+		}
 
 		signRound2(&state, files, *outputFile)
 	} else {

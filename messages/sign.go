@@ -1,6 +1,7 @@
 package messages
 
 import (
+	"crypto/ed25519"
 	"crypto/sha512"
 	"encoding/base64"
 	"encoding/json"
@@ -39,123 +40,79 @@ type signer struct {
 	Zi ristretto.Scalar
 }
 
-func NewSigner() signer {
-	var s signer
-	s.Reset()
-	return s
-}
-
-// Reset sets all values to default.
-// The party is no longer usable since the public key is deleted.
-func (signer *signer) Reset() {
-	signer.Ei.Set(ristretto.Identity)
-	signer.Di.Set(ristretto.Identity)
-
-	signer.Ri.Set(ristretto.Identity)
-
-	signer.Pi.Set(ristretto.Zero)
-	signer.Zi.Set(ristretto.Zero)
-}
-
 func (s *signer) MarshalJSON() ([]byte, error) {
 	return json.Marshal(&struct {
-		Di     string `json:"di"`
-		Ei     string `json:"ei"`
-		Pi     string `json:"pi"`
-		Ri     string `json:"ri"`
-		Zi     string `json:"zi"`
-		Public string `json:"public"`
+		Di     ristretto.Element `json:"di"`
+		Ei     ristretto.Element `json:"ei"`
+		Pi     string            `json:"pi"`
+		Ri     ristretto.Element `json:"ri"`
+		Zi     string            `json:"zi"`
+		Public ristretto.Element `json:"public"`
 	}{
-		Di:     base64.StdEncoding.EncodeToString(s.Di.Bytes()),
-		Ei:     base64.StdEncoding.EncodeToString(s.Ei.Bytes()),
+		Di:     s.Di,
+		Ei:     s.Ei,
 		Pi:     base64.StdEncoding.EncodeToString(s.Pi.Bytes()),
-		Ri:     base64.StdEncoding.EncodeToString(s.Ri.Bytes()),
+		Ri:     s.Ri,
 		Zi:     base64.StdEncoding.EncodeToString(s.Zi.Bytes()),
-		Public: base64.StdEncoding.EncodeToString(s.Public.Bytes()),
+		Public: s.Public,
 	})
 }
 
 func (s *signer) UnmarshalJSON(data []byte) error {
 	aux := &struct {
-		Di     string `json:"di"`
-		Ei     string `json:"ei"`
-		Pi     string `json:"pi"`
-		Ri     string `json:"ri"`
-		Zi     string `json:"zi"`
-		Public string `json:"public"`
+		Di     ristretto.Element `json:"di"`
+		Ei     ristretto.Element `json:"ei"`
+		Pi     string            `json:"pi"`
+		Ri     ristretto.Element `json:"ri"`
+		Zi     string            `json:"zi"`
+		Public ristretto.Element `json:"public"`
 	}{}
 
 	if err := json.Unmarshal(data, aux); err != nil {
 		return err
 	}
 
-	diBytes, err := base64.StdEncoding.DecodeString(aux.Di)
-	if err != nil {
+	if err := decodeScalar(aux.Pi, &s.Pi); err != nil {
 		return err
 	}
 
-	if _, err := s.Di.SetCanonicalBytes(diBytes); err != nil {
+	if err := decodeScalar(aux.Zi, &s.Zi); err != nil {
 		return err
 	}
 
-	eiBytes, err := base64.StdEncoding.DecodeString(aux.Ei)
-	if err != nil {
-		return err
-	}
-
-	_, err = s.Ei.SetCanonicalBytes(eiBytes)
-	if err != nil {
-		return err
-	}
-
-	piBytes, err := base64.StdEncoding.DecodeString(aux.Pi)
-	if err != nil {
-		return err
-	}
-
-	_, err = s.Pi.SetCanonicalBytes(piBytes)
-	if err != nil {
-		return err
-	}
-
-	riBytes, err := base64.StdEncoding.DecodeString(aux.Ri)
-	if err != nil {
-		return err
-	}
-
-	_, err = s.Ri.SetCanonicalBytes(riBytes)
-	if err != nil {
-		return err
-	}
-
-	ziBytes, err := base64.StdEncoding.DecodeString(aux.Zi)
-	if err != nil {
-		return err
-	}
-
-	_, err = s.Zi.SetCanonicalBytes(ziBytes)
-	if err != nil {
-		return err
-	}
-
-	publicBytes, err := base64.StdEncoding.DecodeString(aux.Public)
-	if err != nil {
-		return err
-	}
-
-	_, err = s.Public.SetCanonicalBytes(publicBytes)
-	if err != nil {
-		return err
-	}
+	s.Di = aux.Di
+	s.Ei = aux.Ei
+	s.Ri = aux.Ri
+	s.Public = aux.Public
 
 	return nil
+}
+
+/*
+func decodeElement(encoded string, elem *ristretto.Element) error {
+	bytes, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil {
+		return err
+	}
+	_, err = elem.SetCanonicalBytes(bytes)
+	return err
+}
+*/
+
+func decodeScalar(encoded string, scalar *ristretto.Scalar) error {
+	bytes, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil {
+		return err
+	}
+	_, err = scalar.SetCanonicalBytes(bytes)
+	return err
 }
 
 type SignerState struct {
 	SelfID    party.ID
 	SignerIDs party.IDSlice
 	Message   []byte
-	Parties   map[party.ID]*signer
+	Signers   map[party.ID]*signer
 	// GroupKey is the GroupKey, i.e. the public key associated to the group of signers.
 	GroupKey       eddsa.PublicKey
 	SecretKeyShare ristretto.Scalar
@@ -168,62 +125,47 @@ type SignerState struct {
 }
 
 func (s *SignerState) MarshalJSON() ([]byte, error) {
-	idBytes := s.SelfID.Bytes()
-	msg := base64.StdEncoding.EncodeToString(s.Message)
-	groupKeyBytes, err := s.GroupKey.MarshalJSON()
-	if err != nil {
-		return nil, err
-	}
-	secretBytes := s.SecretKeyShare.Bytes()
-	eBytes := s.E.Bytes()
-	dBytes := s.D.Bytes()
-	cBytes := s.C.Bytes()
-	rBytes := s.R.Bytes()
-	parties := make(map[string]string, len(s.Parties))
-	for id, party := range s.Parties {
-		partyBytes, err := party.MarshalJSON()
-		if err != nil {
-			return nil, err
-		}
-		parties[base64.StdEncoding.EncodeToString(id.Bytes())] = base64.StdEncoding.EncodeToString(partyBytes)
+	parties := make(map[string]*signer, len(s.Signers))
+	for id, party := range s.Signers {
+		parties[base64.StdEncoding.EncodeToString(id.Bytes())] = party
 	}
 	return json.Marshal(&struct {
-		SelfID         string            `json:"self_id"`
-		SignerIDs      party.IDSlice     `json:"signer_ids"`
-		Message        string            `json:"message"`
-		GroupKey       string            `json:"group_key"`
-		SecretKeyShare string            `json:"secret_key_share"`
-		E              string            `json:"e"`
-		D              string            `json:"d"`
-		C              string            `json:"c"`
-		R              string            `json:"r"`
-		Signers        map[string]string `json:"signers"`
+		SelfID         string             `json:"self_id"`
+		SignerIDs      party.IDSlice      `json:"signer_ids"`
+		Message        string             `json:"message"`
+		GroupKey       eddsa.PublicKey    `json:"group_key"`
+		SecretKeyShare string             `json:"secret_key_share"`
+		E              string             `json:"e"`
+		D              string             `json:"d"`
+		C              string             `json:"c"`
+		R              ristretto.Element  `json:"r"`
+		Signers        map[string]*signer `json:"signers"`
 	}{
-		SelfID:         base64.StdEncoding.EncodeToString(idBytes),
+		SelfID:         base64.StdEncoding.EncodeToString(s.SelfID.Bytes()),
 		SignerIDs:      s.SignerIDs,
-		Message:        msg,
-		GroupKey:       base64.StdEncoding.EncodeToString(groupKeyBytes),
-		SecretKeyShare: base64.StdEncoding.EncodeToString(secretBytes),
-		E:              base64.StdEncoding.EncodeToString(eBytes),
-		D:              base64.StdEncoding.EncodeToString(dBytes),
-		C:              base64.StdEncoding.EncodeToString(cBytes),
-		R:              base64.StdEncoding.EncodeToString(rBytes),
+		Message:        base64.StdEncoding.EncodeToString(s.Message),
+		GroupKey:       s.GroupKey,
+		SecretKeyShare: base64.StdEncoding.EncodeToString(s.SecretKeyShare.Bytes()),
+		E:              base64.StdEncoding.EncodeToString(s.E.Bytes()),
+		D:              base64.StdEncoding.EncodeToString(s.D.Bytes()),
+		C:              base64.StdEncoding.EncodeToString(s.C.Bytes()),
+		R:              s.R,
 		Signers:        parties,
 	})
 }
 
 func (s *SignerState) UnmarshalJSON(data []byte) error {
 	aux := &struct {
-		SelfID         string            `json:"self_id"`
-		SignerIDs      party.IDSlice     `json:"signer_ids"`
-		Message        string            `json:"message"`
-		GroupKey       string            `json:"group_key"`
-		SecretKeyShare string            `json:"secret_key_share"`
-		E              string            `json:"e"`
-		D              string            `json:"d"`
-		C              string            `json:"c"`
-		R              string            `json:"r"`
-		Signers        map[string]string `json:"signers"`
+		SelfID         string             `json:"self_id"`
+		SignerIDs      party.IDSlice      `json:"signer_ids"`
+		Message        string             `json:"message"`
+		GroupKey       eddsa.PublicKey    `json:"group_key"`
+		SecretKeyShare string             `json:"secret_key_share"`
+		E              string             `json:"e"`
+		D              string             `json:"d"`
+		C              string             `json:"c"`
+		R              ristretto.Element  `json:"r"`
+		Signers        map[string]*signer `json:"signers"`
 	}{}
 
 	if err := json.Unmarshal(data, aux); err != nil {
@@ -247,63 +189,28 @@ func (s *SignerState) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	s.Message = msg
+	s.GroupKey = aux.GroupKey
 
-	groupKeyBytes, err := base64.StdEncoding.DecodeString(aux.GroupKey)
-	if err != nil {
-		return err
-	}
-	err = s.GroupKey.UnmarshalJSON(groupKeyBytes)
-	if err != nil {
+	if err := decodeScalar(aux.SecretKeyShare, &s.SecretKeyShare); err != nil {
 		return err
 	}
 
-	secretBytes, err := base64.StdEncoding.DecodeString(aux.SecretKeyShare)
-	if err != nil {
-		return err
-	}
-	_, err = s.SecretKeyShare.SetBytesWithClamping(secretBytes)
-	if err != nil {
+	if err := decodeScalar(aux.E, &s.E); err != nil {
 		return err
 	}
 
-	eBytes, err := base64.StdEncoding.DecodeString(aux.E)
-	if err != nil {
-		return err
-	}
-	_, err = s.E.SetBytesWithClamping(eBytes)
-	if err != nil {
+	if err := decodeScalar(aux.D, &s.D); err != nil {
 		return err
 	}
 
-	dBytes, err := base64.StdEncoding.DecodeString(aux.D)
-	if err != nil {
-		return err
-	}
-	_, err = s.D.SetBytesWithClamping(dBytes)
-	if err != nil {
+	if err := decodeScalar(aux.C, &s.C); err != nil {
 		return err
 	}
 
-	cBytes, err := base64.StdEncoding.DecodeString(aux.C)
-	if err != nil {
-		return err
-	}
-	_, err = s.C.SetBytesWithClamping(cBytes)
-	if err != nil {
-		return err
-	}
+	s.R = aux.R
 
-	rBytes, err := base64.StdEncoding.DecodeString(aux.R)
-	if err != nil {
-		return err
-	}
-	_, err = s.R.SetCanonicalBytes(rBytes)
-	if err != nil {
-		return err
-	}
-
-	s.Parties = make(map[party.ID]*signer, len(aux.Signers))
-	for idStr, partyStr := range aux.Signers {
+	s.Signers = make(map[party.ID]*signer, len(aux.Signers))
+	for idStr, signer := range aux.Signers {
 		idBytes, err := base64.StdEncoding.DecodeString(idStr)
 		if err != nil {
 			return err
@@ -313,71 +220,59 @@ func (s *SignerState) UnmarshalJSON(data []byte) error {
 		if err != nil {
 			return err
 		}
-		partyBytes, err := base64.StdEncoding.DecodeString(partyStr)
-		if err != nil {
-			return err
-		}
-		sig := &signer{}
-		err = sig.UnmarshalJSON(partyBytes)
-		if err != nil {
-			return err
-		}
-		s.Parties[partyID] = sig
+
+		s.Signers[partyID] = signer
 	}
 
 	return nil
 }
 
-func SignRound0(partyIDs party.IDSlice, secret *eddsa.SecretShare, shares *eddsa.Public, message []byte) (*Message, *SignerState, error) {
-	if !partyIDs.Contains(secret.ID) {
-		return nil, nil, errors.New("base.NewRound: owner of SecretShare is not contained in partyIDs")
+func SignRound0(signerIDs party.IDSlice, secret *eddsa.SecretShare, shares *eddsa.Public, message []byte) (*Message, *SignerState, error) {
+	if !signerIDs.Contains(secret.ID) {
+		return nil, nil, errors.New("SignRound0: owner of SecretShare is not contained in partyIDs")
 	}
 
-	if !partyIDs.IsSubsetOf(shares.PartyIDs) {
-		return nil, nil, fmt.Errorf("base.NewRound: partyIDs %v are not a subset of shares.PartyIDs %v", partyIDs, shares.PartyIDs)
+	if !signerIDs.IsSubsetOf(shares.PartyIDs) {
+		return nil, nil, fmt.Errorf("SignRound0: partyIDs %v are not a subset of shares.PartyIDs %v", signerIDs, shares.PartyIDs)
 	}
 
 	state := &SignerState{
-		SelfID:         secret.ID,
-		SignerIDs:      partyIDs,
-		Message:        message,
-		Parties:        make(map[party.ID]*signer, partyIDs.N()),
-		GroupKey:       *shares.GroupKey,
-		SecretKeyShare: secret.Secret,
+		SelfID:    secret.ID,
+		SignerIDs: signerIDs,
+		Message:   message,
+		Signers:   make(map[party.ID]*signer, signerIDs.N()),
+		GroupKey:  *shares.GroupKey,
 	}
 
-	state.R.Set(ristretto.Identity)
-
 	// Setup parties
-	for _, id := range partyIDs {
-		s := NewSigner()
-		// var s signer
+	for _, id := range signerIDs {
+		var s signer
 		if id == 0 {
-			return nil, nil, errors.New("base.NewRound: id 0 is not valid")
+			return nil, nil, errors.New("SignRound0: id 0 is not valid")
 		}
 
 		originalShare, ok := shares.Shares[id]
 		if !ok {
-			return nil, nil, fmt.Errorf("base.NewRound: party %d not found in shares", id)
+			return nil, nil, fmt.Errorf("SignRound0: party %d not found in shares", id)
 		}
 
-		lagrange, err := id.Lagrange(partyIDs)
+		lagrange, err := id.Lagrange(signerIDs)
 		if err != nil {
-			return nil, nil, fmt.Errorf("base.NewRound: %w", err)
+			return nil, nil, fmt.Errorf("SignRound0: %w", err)
 		}
 		s.Public.ScalarMult(lagrange, originalShare)
-		state.Parties[id] = &s
+		state.Signers[id] = &s
 	}
 
 	// Normalize secret share so that we can assume we are dealing with an additive sharing
-	lagrange, err := state.SelfID.Lagrange(partyIDs)
+	lagrange, err := state.SelfID.Lagrange(signerIDs)
 	if err != nil {
-		return nil, nil, fmt.Errorf("base.NewRound: %w", err)
+		return nil, nil, fmt.Errorf("SignRound0: %w", err)
 	}
 	state.SecretKeyShare.Multiply(lagrange, &secret.Secret)
 
 	// Generate first message
-	selfParty := state.Parties[state.SelfID]
+	selfParty := state.Signers[state.SelfID]
 
 	// Sample dᵢ, Dᵢ = [dᵢ] B
 	scalar.SetScalarRandom(&state.D)
@@ -393,31 +288,47 @@ func SignRound0(partyIDs party.IDSlice, secret *eddsa.SecretShare, shares *eddsa
 func SignRound1(state *SignerState, inputMsgs []*Message) (*Message, *SignerState, error) {
 	// Process Sign1 messages
 	for _, msg := range inputMsgs {
+		if msg.From == state.SelfID {
+			continue
+		}
+
 		id := msg.From
-		otherParty := state.Parties[id]
-		if msg.Sign1.Di.Equal(ristretto.Identity) == 1 || msg.Sign1.Ei.Equal(ristretto.Identity) == 1 {
+		otherParty := state.Signers[id]
+		if msg.Sign1.Di.Equal(ristretto.NewIdentityElement()) == 1 || msg.Sign1.Ei.Equal(ristretto.NewIdentityElement()) == 1 {
 			return nil, nil, errors.New("commitment Ei or Di was the identity")
 		}
 		otherParty.Di.Set(&msg.Sign1.Di)
 		otherParty.Ei.Set(&msg.Sign1.Ei)
 	}
 
+	// Generate Sign2 messages
 	state.computeRhos()
 
-	state.R.Set(ristretto.Identity)
-	for _, p := range state.Parties {
-		// Ri = D + [ρ] E
+	state.R.Set(ristretto.NewIdentityElement())
+	for _, id := range state.SignerIDs {
+		p := state.Signers[id]
+
+		// mutate Ri in place
+		// Ri = Di + [ρi] Ei
 		p.Ri.ScalarMult(&p.Pi, &p.Ei)
 		p.Ri.Add(&p.Ri, &p.Di)
+		// fmt.Printf("[%d] Ri = %v\n", id, p.Ri)
 
 		// R += Ri
 		state.R.Add(&state.R, &p.Ri)
 	}
 
+	// R must be the same for all parties, the sum of all Ri
+	// fmt.Printf("R: %v\n", state.R)
+
 	// c = H(R, GroupKey, M)
+	// fmt.Printf("GroupKey: %v\n", state.GroupKey)
 	state.C.Set(eddsa.ComputeChallenge(&state.R, &state.GroupKey, state.Message))
 
-	selfParty := state.Parties[state.SelfID]
+	// the challenge c must be the same for all parties
+	// fmt.Printf("C: %v\n", state.C)
+
+	selfParty := state.Signers[state.SelfID]
 
 	// Compute z = d + (e • ρ) + 𝛌 • s • c
 	// Note: since we multiply the secret by the Lagrange coefficient,
@@ -434,23 +345,51 @@ func SignRound1(state *SignerState, inputMsgs []*Message) (*Message, *SignerStat
 func SignRound2(state *SignerState, inputMsgs []*Message) (*eddsa.Signature, *SignerState, error) {
 	// Process Sign2 messages
 	for _, msg := range inputMsgs {
+		if msg.From == state.SelfID {
+			continue
+		}
+
 		id := msg.From
-		otherParty := state.Parties[id]
+		otherParty, ok := state.Signers[id]
+		if !ok {
+			return nil, nil, fmt.Errorf("SignRound2: party %d not found in shares", id)
+		}
 
-		var publicNeg, RPrime ristretto.Element
+		// fmt.Printf("Computing signature share for party %d from party %d\n", state.SelfID, id)
+
+		var publicNeg, RPrime, ZiB ristretto.Element
 		publicNeg.Negate(&otherParty.Public)
+		// fmt.Printf("C: %v\n", state.C)
 
-		// RPrime = [c](-A) + [s]B
-		RPrime.VarTimeDoubleScalarBaseMult(&state.C, &publicNeg, &msg.Sign2.Zi)
+		/*
+			// RPrime = [c](-A) + [s]B
+			RPrime.VarTimeDoubleScalarBaseMult(&state.C, &publicNeg, &msg.Sign2.Zi)
+			if RPrime.Equal(&otherParty.Ri) != 1 {
+				fmt.Printf("111  Calculated RPrime2: %v\n", RPrime)
+				return nil, nil, errors.New("signature share is invalid")
+			}
+
+			var ZiB, RPrime2 ristretto.Element
+		*/
+		// RPrime = [c](-A) + [zi]B
+		ZiB.ScalarBaseMult(&msg.Sign2.Zi)
+		RPrime.ScalarMult(&state.C, &publicNeg)
+		RPrime.Add(&ZiB, &RPrime)
+
+		// Verify the signature share
 		if RPrime.Equal(&otherParty.Ri) != 1 {
+			fmt.Printf("222  Calculated RPrime: %v\n", RPrime)
 			return nil, nil, errors.New("signature share is invalid")
 		}
+
 		otherParty.Zi.Set(&msg.Sign2.Zi)
 	}
 
+	// Generate output
+
 	// S = ∑ sᵢ
 	S := ristretto.NewScalar()
-	for _, otherParty := range state.Parties {
+	for _, otherParty := range state.Signers {
 		// s += sᵢ
 		S.Add(S, &otherParty.Zi)
 	}
@@ -462,6 +401,10 @@ func SignRound2(state *SignerState, inputMsgs []*Message) (*eddsa.Signature, *Si
 
 	if !state.GroupKey.Verify(state.Message, sig) {
 		return nil, nil, errors.New("full signature is invalid")
+	}
+
+	if !ed25519.Verify(state.GroupKey.ToEd25519(), state.Message, sig.ToEd25519()) {
+		return nil, nil, errors.New("ed25519: full signature is invalid")
 	}
 
 	return sig, state, nil
@@ -501,7 +444,7 @@ func (state *SignerState) computeRhos() {
 
 	// compute B
 	for _, id := range state.SignerIDs {
-		otherParty := state.Parties[id]
+		otherParty := state.Signers[id]
 		buffer = append(buffer, id.Bytes()...)
 		buffer = append(buffer, otherParty.Di.Bytes()...)
 		buffer = append(buffer, otherParty.Ei.Bytes()...)
@@ -513,6 +456,6 @@ func (state *SignerState) computeRhos() {
 
 		// Pi = ρ = H ("FROST-SHA512" ∥ Message ∥ B ∥ ID )
 		digest := sha512.Sum512(buffer)
-		_, _ = state.Parties[id].Pi.SetUniformBytes(digest[:])
+		_, _ = state.Signers[id].Pi.SetUniformBytes(digest[:])
 	}
 }

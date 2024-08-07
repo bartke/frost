@@ -8,7 +8,6 @@ import (
 
 	"github.com/bartke/threshold-signatures-ed25519/messages"
 	"github.com/bartke/threshold-signatures-ed25519/party"
-	"github.com/bartke/threshold-signatures-ed25519/ristretto"
 )
 
 // Function to write data to a file
@@ -19,20 +18,6 @@ func writeFile(filename string, data []byte) error {
 // Function to read data from a file
 func readFile(filename string) ([]byte, error) {
 	return os.ReadFile(filename)
-}
-
-// readScalarFromFile reads the scalar from a file
-func readScalarFromFile(filename string) (*ristretto.Scalar, error) {
-	data, err := os.ReadFile(filename)
-	if err != nil {
-		return nil, err
-	}
-	var scalar ristretto.Scalar
-	_, err = scalar.SetBytesWithClamping(data)
-	if err != nil {
-		return nil, err
-	}
-	return &scalar, nil
 }
 
 // Initialize participant for key generation round 1
@@ -60,7 +45,7 @@ func keyGenRound1(state *messages.State, inputFiles []string, outputFile, stateF
 		msgs[i] = &msg
 	}
 
-	outMsgs, secret, state, err := messages.Round1(state, msgs)
+	outMsgs, state, err := messages.Round1(state, msgs)
 	if err != nil {
 		fmt.Println("Error in key generation round 1:", err)
 		return
@@ -72,15 +57,12 @@ func keyGenRound1(state *messages.State, inputFiles []string, outputFile, stateF
 		writeFile(fmt.Sprintf("round1_out_%d_%d.json", outMsg.From, outMsg.To), data)
 	}
 
-	// Save secret to file
-	writeFile(outputFile, secret.Bytes())
-
 	stateData, _ := state.MarshalJSON()
 	writeFile(stateFile, stateData)
 }
 
 // Key generation round 2
-func keyGenRound2(state *messages.State, inputFiles []string, secretFile string, outputFile string) {
+func keyGenRound2(state *messages.State, inputFiles []string, outputFile string) {
 	msgs := make([]*messages.Message, len(inputFiles))
 	for i, file := range inputFiles {
 		data, _ := readFile(file)
@@ -89,13 +71,7 @@ func keyGenRound2(state *messages.State, inputFiles []string, secretFile string,
 		msgs[i] = &msg
 	}
 
-	secret, err := readScalarFromFile(secretFile)
-	if err != nil {
-		fmt.Println("Error reading secret from file:", err)
-		return
-	}
-
-	pub, sec, err := messages.Round2(state, msgs, secret)
+	pub, sec, err := messages.Round2(state, msgs)
 	if err != nil {
 		fmt.Println("Error in key generation round 2:", err)
 		return
@@ -119,7 +95,6 @@ func main() {
 		round2     = flag.Bool("round2", false, "Execute key generation round 2")
 		inputFiles = flag.String("input", "", "Comma-separated list of input files")
 		outputFile = flag.String("output", "", "Output file")
-		secretFile = flag.String("secret", "", "Secret file for round 2")
 		stateFile  = flag.String("state", "", "State file")
 	)
 
@@ -159,7 +134,7 @@ func main() {
 
 		keyGenRound1(&state, files, *outputFile, *stateFile)
 	} else if *round2 {
-		if *inputFiles == "" || *secretFile == "" {
+		if *inputFiles == "" {
 			fmt.Println("Input files and secret file are required for round 2")
 			return
 		}
@@ -169,7 +144,7 @@ func main() {
 		var state messages.State
 		state.UnmarshalJSON(stateData)
 
-		keyGenRound2(&state, files, *secretFile, *outputFile)
+		keyGenRound2(&state, files, *outputFile)
 	} else {
 		fmt.Println("Specify --init, --round1, or --round2")
 	}
