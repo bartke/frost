@@ -23,11 +23,6 @@ import (
 
 type Scalar = edwards25519.Scalar
 
-var (
-	Zero     = NewScalar()
-	Identity = NewIdentityElement()
-)
-
 func NewScalar() *Scalar {
 	return edwards25519.NewScalar()
 }
@@ -466,4 +461,12 @@ func (e *Element) BytesEd25519() []byte {
 	p.ScalarMult(eightInv, &p)
 
 	return p.Bytes()
+}
+
+func (e *Element) MarshalJSON() ([]byte, error) {
+	return e.r.MarshalJSON()
+}
+
+func (e *Element) UnmarshalJSON(data []byte) error {
+	return e.r.UnmarshalJSON(data)
 }

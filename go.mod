@@ -2,6 +2,8 @@ module github.com/bartke/threshold-signatures-ed25519
 
 go 1.22.2
 
+replace filippo.io/edwards25519 => ../edwards25519
+
 require (
 	filippo.io/edwards25519 v1.0.0-rc.1
 	github.com/stretchr/testify v1.6.1

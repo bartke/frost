@@ -89,6 +89,7 @@ func (s *Public) UnmarshalJSON(data []byte) error {
 	if err != nil {
 		return err
 	}
+
 	computedGroupKey := computeGroupKey(newS.PartyIDs, out.Shares)
 	if !computedGroupKey.Equal(out.GroupKey) {
 		return errors.New("PublicShares: inconsistent group key")

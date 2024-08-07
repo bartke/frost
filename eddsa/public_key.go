@@ -2,7 +2,6 @@ package eddsa
 
 import (
 	"crypto/ed25519"
-	"encoding/json"
 
 	"github.com/bartke/threshold-signatures-ed25519/ristretto"
 )
@@ -42,10 +41,10 @@ func (pk *PublicKey) ToEd25519() ed25519.PublicKey {
 
 // MarshalJSON implements the json.Marshaler interface.
 func (pk PublicKey) MarshalJSON() ([]byte, error) {
-	return json.Marshal(&pk.pk)
+	return pk.pk.MarshalJSON()
 }
 
 // UnmarshalJSON implements the json.Unmarshaler interface.
 func (pk *PublicKey) UnmarshalJSON(data []byte) error {
-	return json.Unmarshal(data, &pk.pk)
+	return pk.pk.UnmarshalJSON(data)
 }
