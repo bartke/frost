@@ -202,3 +202,17 @@ For the Edwards curve context, use point addition instead of multiplication.
 The verification is successful if:
 
 $$A_{\text{combined}} = A$$
+
+## Usage
+
+```sh
+make keygen
+make sign
+# Verify the signature against an older version of this readme.
+go run ./cmd/verify d70758d8211284be5318d6df183766f197516d408b0effec65bd908224e828a8 9d1024def2c31eb10b5d883f2cebeea43d37a8bff115e92c7b1d9cb57fce79887cfd4aaf3c2a149dc7ec3808f68d9290159e924729dc9d59d946b6a5c0728707 ./README.md
+Signature is valid.
+```
+
+## Dependencies
+
+The package has a minimal set of third-party dependencies, mainly Filippo Valsorda's [filippo.io/edwards25519](https://github.com/FiloSottile/edwards25519) for lower level operations on the Edwards25519 curve that are not provided by the `crypto/ed25519` standard library package.

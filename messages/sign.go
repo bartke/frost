@@ -1,7 +1,6 @@
 package messages
 
 import (
-	"crypto/ed25519"
 	"crypto/sha512"
 	"encoding/base64"
 	"encoding/json"
@@ -38,6 +37,17 @@ type signer struct {
 	// Zi = z = d + (e • ρ) + 𝛌 • s • c
 	// This is the share of the final signature
 	Zi ristretto.Scalar
+}
+
+func NewSigner() *signer {
+	return &signer{
+		Public: *ristretto.NewIdentityElement(),
+		Di:     *ristretto.NewIdentityElement(),
+		Ei:     *ristretto.NewIdentityElement(),
+		Ri:     *ristretto.NewIdentityElement(),
+		Pi:     *ristretto.NewScalar(),
+		Zi:     *ristretto.NewScalar(),
+	}
 }
 
 func (s *signer) MarshalJSON() ([]byte, error) {
@@ -86,26 +96,6 @@ func (s *signer) UnmarshalJSON(data []byte) error {
 	s.Public = aux.Public
 
 	return nil
-}
-
-/*
-func decodeElement(encoded string, elem *ristretto.Element) error {
-	bytes, err := base64.StdEncoding.DecodeString(encoded)
-	if err != nil {
-		return err
-	}
-	_, err = elem.SetCanonicalBytes(bytes)
-	return err
-}
-*/
-
-func decodeScalar(encoded string, scalar *ristretto.Scalar) error {
-	bytes, err := base64.StdEncoding.DecodeString(encoded)
-	if err != nil {
-		return err
-	}
-	_, err = scalar.SetCanonicalBytes(bytes)
-	return err
 }
 
 type SignerState struct {
@@ -242,11 +232,12 @@ func SignRound0(signerIDs party.IDSlice, secret *eddsa.SecretShare, shares *edds
 		Message:   message,
 		Signers:   make(map[party.ID]*signer, signerIDs.N()),
 		GroupKey:  *shares.GroupKey,
+		R:         *ristretto.NewIdentityElement(),
 	}
 
 	// Setup parties
 	for _, id := range signerIDs {
-		var s signer
+		s := NewSigner()
 		if id == 0 {
 			return nil, nil, errors.New("SignRound0: id 0 is not valid")
 		}
@@ -261,7 +252,7 @@ func SignRound0(signerIDs party.IDSlice, secret *eddsa.SecretShare, shares *edds
 			return nil, nil, fmt.Errorf("SignRound0: %w", err)
 		}
 		s.Public.ScalarMult(lagrange, originalShare)
-		state.Signers[id] = &s
+		state.Signers[id] = s
 	}
 
 	// Normalize secret share so that we can assume we are dealing with an additive sharing
@@ -401,10 +392,6 @@ func SignRound2(state *SignerState, inputMsgs []*Message) (*eddsa.Signature, *Si
 
 	if !state.GroupKey.Verify(state.Message, sig) {
 		return nil, nil, errors.New("full signature is invalid")
-	}
-
-	if !ed25519.Verify(state.GroupKey.ToEd25519(), state.Message, sig.ToEd25519()) {
-		return nil, nil, errors.New("ed25519: full signature is invalid")
 	}
 
 	return sig, state, nil

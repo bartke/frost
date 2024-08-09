@@ -12,6 +12,15 @@ import (
 	"github.com/bartke/threshold-signatures-ed25519/zk"
 )
 
+func decodeScalar(encoded string, scalar *ristretto.Scalar) error {
+	bytes, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil {
+		return err
+	}
+	_, err = scalar.SetCanonicalBytes(bytes)
+	return err
+}
+
 type Header struct {
 	// Type is the message type
 	Type MessageType

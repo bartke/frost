@@ -97,11 +97,6 @@ func (s *State) UnmarshalJSON(data []byte) error {
 		return err
 	}
 
-	secretBytes, err := base64.StdEncoding.DecodeString(aux.Secret)
-	if err != nil {
-		return err
-	}
-
 	s.SelfID, err = party.FromBytes(idBytes)
 	if err != nil {
 		return err
@@ -112,8 +107,7 @@ func (s *State) UnmarshalJSON(data []byte) error {
 		return err
 	}
 
-	_, err = s.Secret.SetCanonicalBytes(secretBytes)
-	if err != nil {
+	if err := decodeScalar(aux.Secret, &s.Secret); err != nil {
 		return err
 	}
 

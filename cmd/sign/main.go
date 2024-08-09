@@ -1,7 +1,9 @@
 package main
 
 import (
+	"crypto/ed25519"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -110,6 +112,17 @@ func signRound2(state *messages.SignerState, inputFiles []string, outputFile str
 		fmt.Println("Error in signing round 2:", err)
 		return
 	}
+
+	// verify also with the standard ed25519 library
+	pubkey := state.GroupKey.ToEd25519()
+	signature := sig.ToEd25519()
+	// print hex
+	if !ed25519.Verify(pubkey, state.Message, signature) {
+		panic(errors.New("ed25519: full signature is invalid"))
+	}
+
+	fmt.Printf("Public key: %x\n", pubkey)
+	fmt.Printf("Validated Signature: %x\n", signature)
 
 	// Write signature to file
 	sigData, _ := sig.MarshalBinary()

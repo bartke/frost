@@ -15,6 +15,7 @@ package ristretto
 import (
 	"bytes"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 
 	"filippo.io/edwards25519"
@@ -463,10 +464,25 @@ func (e *Element) BytesEd25519() []byte {
 	return p.Bytes()
 }
 
+// MarshalJSON serializes the Element as a base64 encoded string.
 func (e *Element) MarshalJSON() ([]byte, error) {
-	return e.r.MarshalJSON()
+	encoded := base64.StdEncoding.EncodeToString(e.r.Bytes())
+	return json.Marshal(encoded)
 }
 
+// UnmarshalJSON deserializes the base64 encoded string back into the Element.
 func (e *Element) UnmarshalJSON(data []byte) error {
-	return e.r.UnmarshalJSON(data)
+	var encoded string
+	if err := json.Unmarshal(data, &encoded); err != nil {
+		return err
+	}
+
+	bytes, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil {
+		return err
+	}
+
+	// Assuming SetBytes is a method to set the byte data in your Element struct
+	_, err = e.r.SetBytes(bytes)
+	return err
 }
