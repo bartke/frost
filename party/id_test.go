@@ -4,8 +4,8 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/bartke/threshold-signatures-ed25519/ristretto"
-	"github.com/bartke/threshold-signatures-ed25519/scalar"
+	"github.com/bartke/frost/ristretto"
+	"github.com/bartke/frost/scalar"
 )
 
 func TestFromBytes(t *testing.T) {

@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"errors"
 
-	"github.com/bartke/threshold-signatures-ed25519/party"
-	"github.com/bartke/threshold-signatures-ed25519/ristretto"
+	"github.com/bartke/frost/party"
+	"github.com/bartke/frost/ristretto"
 )
 
 // Public holds the public keys generated during a key generation protocol.

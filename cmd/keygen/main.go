@@ -6,23 +6,20 @@ import (
 	"os"
 	"strings"
 
-	"github.com/bartke/threshold-signatures-ed25519/messages"
-	"github.com/bartke/threshold-signatures-ed25519/party"
+	"github.com/bartke/frost"
+	"github.com/bartke/frost/party"
 )
 
-// Function to write data to a file
 func writeFile(filename string, data []byte) error {
 	return os.WriteFile(filename, data, 0644)
 }
 
-// Function to read data from a file
 func readFile(filename string) ([]byte, error) {
 	return os.ReadFile(filename)
 }
 
-// Initialize participant for key generation round 1
 func initParticipant(id party.ID, n, t party.Size, outputFile, stateFile string) {
-	msg, state, err := messages.Round0(id, n, t)
+	msg, state, err := frost.KeygenInit(id, n, t)
 	if err != nil {
 		fmt.Println("Error initializing participant:", err)
 		return
@@ -35,17 +32,16 @@ func initParticipant(id party.ID, n, t party.Size, outputFile, stateFile string)
 	writeFile(stateFile, stateData)
 }
 
-// Key generation round 1
-func keyGenRound1(state *messages.State, inputFiles []string, outputFile, stateFile string) {
-	msgs := make([]*messages.Message, len(inputFiles))
+func keyGenRound1(state *frost.KeygenState, inputFiles []string, stateFile string) {
+	msgs := make([]*frost.Message, len(inputFiles))
 	for i, file := range inputFiles {
 		data, _ := readFile(file)
-		var msg messages.Message
+		var msg frost.Message
 		msg.UnmarshalJSON(data)
 		msgs[i] = &msg
 	}
 
-	outMsgs, state, err := messages.Round1(state, msgs)
+	outMsgs, state, err := frost.KeygenRound1(state, msgs)
 	if err != nil {
 		fmt.Println("Error in key generation round 1:", err)
 		return
@@ -61,17 +57,16 @@ func keyGenRound1(state *messages.State, inputFiles []string, outputFile, stateF
 	writeFile(stateFile, stateData)
 }
 
-// Key generation round 2
-func keyGenRound2(state *messages.State, inputFiles []string, outputFile string) {
-	msgs := make([]*messages.Message, len(inputFiles))
+func keyGenRound2(state *frost.KeygenState, inputFiles []string, outputFile string) {
+	msgs := make([]*frost.Message, len(inputFiles))
 	for i, file := range inputFiles {
 		data, _ := readFile(file)
-		var msg messages.Message
+		var msg frost.Message
 		msg.UnmarshalJSON(data)
 		msgs[i] = &msg
 	}
 
-	pub, sec, err := messages.Round2(state, msgs)
+	pub, sec, err := frost.KeygenRound2(state, msgs)
 	if err != nil {
 		fmt.Println("Error in key generation round 2:", err)
 		return
@@ -129,10 +124,10 @@ func main() {
 		files := strings.Split(*inputFiles, ",")
 
 		stateData, _ := readFile(*stateFile)
-		var state messages.State
+		var state frost.KeygenState
 		state.UnmarshalJSON(stateData)
 
-		keyGenRound1(&state, files, *outputFile, *stateFile)
+		keyGenRound1(&state, files, *stateFile)
 	} else if *round2 {
 		if *inputFiles == "" {
 			fmt.Println("Input files and secret file are required for round 2")
@@ -141,7 +136,7 @@ func main() {
 		files := strings.Split(*inputFiles, ",")
 
 		stateData, _ := readFile(*stateFile)
-		var state messages.State
+		var state frost.KeygenState
 		state.UnmarshalJSON(stateData)
 
 		keyGenRound2(&state, files, *outputFile)

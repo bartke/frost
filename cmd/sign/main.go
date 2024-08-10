@@ -9,22 +9,19 @@ import (
 	"os"
 	"strings"
 
-	"github.com/bartke/threshold-signatures-ed25519/eddsa"
-	"github.com/bartke/threshold-signatures-ed25519/messages"
-	"github.com/bartke/threshold-signatures-ed25519/party"
+	"github.com/bartke/frost"
+	"github.com/bartke/frost/eddsa"
+	"github.com/bartke/frost/party"
 )
 
-// Function to write data to a file
 func writeFile(filename string, data []byte) error {
 	return os.WriteFile(filename, data, 0644)
 }
 
-// Function to read data from a file
 func readFile(filename string) ([]byte, error) {
 	return os.ReadFile(filename)
 }
 
-// Initialize participant for signing round 0
 func initSigner(signers party.IDSlice, secretFile, sharesFile, messageFile, outputFile, stateFile string) {
 	secretData, err := readFile(secretFile)
 	if err != nil {
@@ -55,7 +52,7 @@ func initSigner(signers party.IDSlice, secretFile, sharesFile, messageFile, outp
 		return
 	}
 
-	msg, state, err := messages.SignRound0(signers, &secret, &shares, message)
+	msg, state, err := frost.SignInit(signers, &secret, &shares, message)
 	if err != nil {
 		fmt.Println("Error initializing signer:", err)
 		return
@@ -69,16 +66,16 @@ func initSigner(signers party.IDSlice, secretFile, sharesFile, messageFile, outp
 }
 
 // Signing round 1
-func signRound1(state *messages.SignerState, inputFiles []string, outputFile, stateFile string) {
-	msgs := make([]*messages.Message, len(inputFiles))
+func signRound1(state *frost.SignerState, inputFiles []string, outputFile, stateFile string) {
+	msgs := make([]*frost.Message, len(inputFiles))
 	for i, file := range inputFiles {
 		data, _ := readFile(file)
-		var msg messages.Message
+		var msg frost.Message
 		msg.UnmarshalJSON(data)
 		msgs[i] = &msg
 	}
 
-	outMsg, state, err := messages.SignRound1(state, msgs)
+	outMsg, state, err := frost.SignRound1(state, msgs)
 	if err != nil {
 		fmt.Println("Error in signing round 1:", err)
 		return
@@ -98,16 +95,16 @@ func signRound1(state *messages.SignerState, inputFiles []string, outputFile, st
 }
 
 // Signing round 2
-func signRound2(state *messages.SignerState, inputFiles []string, outputFile string) {
-	msgs := make([]*messages.Message, len(inputFiles))
+func signRound2(state *frost.SignerState, inputFiles []string, outputFile string) {
+	msgs := make([]*frost.Message, len(inputFiles))
 	for i, file := range inputFiles {
 		data, _ := readFile(file)
-		var msg messages.Message
+		var msg frost.Message
 		msg.UnmarshalJSON(data)
 		msgs[i] = &msg
 	}
 
-	sig, state, err := messages.SignRound2(state, msgs)
+	sig, state, err := frost.SignRound2(state, msgs)
 	if err != nil {
 		fmt.Println("Error in signing round 2:", err)
 		return
@@ -186,7 +183,7 @@ func main() {
 		files := strings.Split(*inputFiles, ",")
 
 		stateData, _ := readFile(*stateFile)
-		var state messages.SignerState
+		var state frost.SignerState
 		if err := state.UnmarshalJSON(stateData); err != nil {
 			fmt.Println("Error unmarshaling state:", err)
 			return
@@ -201,7 +198,7 @@ func main() {
 		files := strings.Split(*inputFiles, ",")
 
 		stateData, _ := readFile(*stateFile)
-		var state messages.SignerState
+		var state frost.SignerState
 		if err := state.UnmarshalJSON(stateData); err != nil {
 			fmt.Println("Error unmarshaling state:", err)
 			return

@@ -4,9 +4,9 @@ import (
 	"encoding/binary"
 	"testing"
 
-	"github.com/bartke/threshold-signatures-ed25519/party"
-	"github.com/bartke/threshold-signatures-ed25519/ristretto"
-	"github.com/bartke/threshold-signatures-ed25519/scalar"
+	"github.com/bartke/frost/party"
+	"github.com/bartke/frost/ristretto"
+	"github.com/bartke/frost/scalar"
 	"github.com/stretchr/testify/assert"
 )
 

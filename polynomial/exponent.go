@@ -3,9 +3,9 @@ package polynomial
 import (
 	"errors"
 
-	"github.com/bartke/threshold-signatures-ed25519/party"
-	"github.com/bartke/threshold-signatures-ed25519/ristretto"
-	"github.com/bartke/threshold-signatures-ed25519/scalar"
+	"github.com/bartke/frost/party"
+	"github.com/bartke/frost/ristretto"
+	"github.com/bartke/frost/scalar"
 )
 
 // Exponent represents a polynomial whose coefficients are points on an elliptic curve.

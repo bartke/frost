@@ -3,7 +3,7 @@ package eddsa
 import (
 	"crypto/ed25519"
 
-	"github.com/bartke/threshold-signatures-ed25519/ristretto"
+	"github.com/bartke/frost/ristretto"
 )
 
 // PublicKey represents a FROST-Ed25519 verification key.

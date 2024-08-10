@@ -1,6 +1,6 @@
-# Threshold Signatures With Ed25519 - MPC Example
+# FROST MPC - Threshold Signatures With Ed25519
 
-Simple example to show MPC-based distributed key generation and signing using the Edwards 25519 elliptic curve. This is based on the [taurushq-io/frost-ed25519](https://github.com/taurushq-io/frost-ed25519) package and the respective [paper on FROST](https://eprint.iacr.org/2020/852.pdf). FROST eliminates the need for a trusted dealer by using a distributed key generation (DKG) protocol.
+Example to show MPC-based distributed key generation and signing using the Edwards 25519 elliptic curve. This example is based on the [taurushq-io/frost-ed25519](https://github.com/taurushq-io/frost-ed25519) package and the respective [paper on FROST](https://eprint.iacr.org/2020/852.pdf) to show message exchange via JSON. FROST eliminates the need for a trusted dealer by using a distributed key generation (DKG) protocol.
 
 This example demonstrates:
 1. **Distributed Key Generation (DKG)**: N participants generate a shared public key and individual private key shares without any single party knowing the full private key.
@@ -11,25 +11,52 @@ This example demonstrates:
 
 Key Points:
 - Private key shares are never combined in a single place.
-- Key generation, signing and verification are performed in a distributed manner.
-- Public keys and shares are openly shared among participants.
-- Multiple rounds of communication are required for both key generation and signing.
+- Key generation, signing and verification performed in a distributed manner.
+- Two rounds of communication are required for both key generation and signing.
 - This MPC implementation is secure against up to T-1 malicious participants.
 - The example includes verification steps to ensure the integrity of generated keys and signatures.
 
-This single-file example is for educational purposes. For production use, consider a security-audited implementation.
+## Usage
 
-## Background: Elliptic Curves
+These single-file examples for keygen and signing is for educational purposes only.
 
-A finite field is a set of numbers with specific properties and operations (addition and multiplication) that form a closed, associative, commutative, distributive, and invertible algebraic structure. For example, the field  $\mathbb{F}_{2^{255}-19}$ is used in the Edwards25519 curve as its name suggests.
+```go
+import "github.com/bartke/frost"
+```
+
+See [cmd/keygen](cmd/keygen/main.go) and [cmd/sign](cmd/sign/main.go) for example usage. This is demonstrated in the Makefile:
+
+```sh
+# Generates N=5, T=2 key shares via JSON file exchange.
+make keygen
+# Signs this README.md using the generated key shares with T+1 participants.
+make sign
+# Verify the signature independently with the ed25519 standard library package.
+go run ./cmd/verify <pubkey> <signature> ./README.md
+Signature is valid.
+```
+
+## Dependencies
+
+The package has a minimal set of third-party dependencies, mainly Filippo Valsorda's [filippo.io/edwards25519](https://github.com/FiloSottile/edwards25519) for lower level operations on the Edwards25519 curve that are not provided by the `crypto/ed25519` standard library package.
+
+## Acknowledgment
+
+This codebase is heavily based on the work from [TaurusHQ's FROST Ed25519 implementation](https://github.com/taurushq-io/frost-ed25519), which is licensed under the Apache-2.0 license. Significant modifications have been made to adapt the original code to demonstrate simple JSON message exchange.
+
+## Background and Discussion
+
+### Elliptic Curves
+
+A finite field is a set of numbers with specific properties and operations (addition and multiplication) that form a closed, associative, commutative, distributive, and invertible algebraic structure. For example, the field  $\mathbb{F}_{2^{255}-19}$ is used in the Edwards25519 curve, as its name suggests.
 
 A group is a subset of elements from a finite field where a specific operation (e.g., point addition on an elliptic curve) combines any two elements to form a third element in the group. Groups used in ECC are formed by the points on the elliptic curve with the defined addition operation.
 
 A prime-order subgroup is a subgroup of a larger group where the number of elements (the order) is a prime number. This eliminates small subgroups, preventing easy factorizations and subgroup attacks.
 
-## Background: Signature Verification
+### Signature Verification
 
-Schnorr is a digital signature scheme that can be applied to various elliptic curves and other groups where the discrete logarithm problem is hard. In standard Schnorr signatures, the verification equation is:
+Schnorr is a signature scheme that can be applied to various elliptic curves and other groups where the discrete logarithm problem is hard. It involves generating a nonce, creating a commitment from that nonce, and then producing a signature using the private key and the commitment. In standard Schnorr signatures, the verification equation is:
 
 $$s \cdot G = R + c \cdot Y$$
 
@@ -40,7 +67,7 @@ Where:
 - $c$ is the challenge, computed as $H(R \| Y \| m)$.
 - $Y$ is the public key.
 
-Ed25519 uses a twisted Edwards curve and employs a slightly different verification process for efficiency. The verification equation cofactored is:
+Ed25519 uses a twisted Edwards curve and employs a slightly different verification process. The cofactored verification equation is:
 
 $$[8][s]B = [8]R + [8][c]Y$$
 
@@ -52,17 +79,19 @@ Where:
 - $c$ is the challenge, computed as $H(R \| Y \| m)$ (same as in Schnorr).
 - $Y$ is the public key.
 
-Most standard cryptographic libraries and software use the cofactor-less variant for typical Ed25519 key generation, signing, and verification.
+The multiplication by 8 accounts for the cofactor in the Edwards curve, the ratio of the order of the elliptic curve group to the order of the largest prime-order subgroup. This means the total group order is 8 times the order of the largest prime-order subgroup and there are 8 equivalent points on the curve for any given point
+
+Most standard cryptographic libraries and software use the cofactor-less variant for typical Ed25519 key generation, signing, and verification. When using the cofactored version of Ed25519, operations like point multiplication and signature generation must account for the curve’s cofactor.
+
+In FROST MPC, the partial signature scalar $s_i$ is generated in SignRound1 and verified against the group public key in SignRound2.
 
 ### Why Ristretto Points?
-
-The multiplication by 8 accounts for the cofactor in the Edwards curve, the ratio of the order of the elliptic curve group to the order of the largest prime-order subgroup. This means the total group order is 8 times the order of the largest prime-order subgroup.
 
 When generating a key pair with Ed25519 in a single-party context, the private key is a randomly chosen large integer, and the public key is derived by scalar multiplication of the private key with the curve's base point.
 
 In MPC, multiple participants collaboratively generate key shares and compute signatures without ever combining the shares into a single private key. This cofactor can therefore lead subgroup attacks in DKG, as there is a risk that combined operations might inadvertently produce points that lie in smaller subgroups, especially if each participant independently chooses points on the curve.
 
-Ristretto ensures that all points used in the protocol are mapped to the prime-order subgroup.
+[Ristretto](https://ristretto.group/) ensures that all points used in the protocol are mapped to the prime-order subgroup.
 
 ## Flexible Round-Optimized Schnorr Threshold Signatures
 
@@ -72,25 +101,33 @@ The protocol involves multiple rounds of communication among participants for bo
 - Parties generate shares of the private key $k$ such that each party $i$ holds a share $k_i$.
 - The public key $K$ is computed from these shares without reconstructing the private key.
 
-1. **Initialization**: Each participant (or party) starts with some initial state. The `PartyRoutine(nil, s)` function is called to start this round with no input messages (hence `nil`). Each participant generates some messages to be sent to other participants.
-2. **Commit Phase**: Each participant generates their initial secret shares and corresponding commitments. They broadcast these commitments to all other participants.
-3. **Share Phase**: Each participant sends their secret shares (encrypted) to all other participants. They receive and verify the shares from others using the commitments received in Round 1.
+1. **Initialization**: Each participant generates a secret and a corresponding polynomial. The polynomial’s constant term is the secret, and the degree is $T-1$, where $T$ is the threshold for reconstructing the key.
+2. **Commitments Phase**: Each participant computes and securely shares key shares with others, using the commitments to verify correctness. Verified shares are then used to compute partial public keys.
+3. **Share Phase**: Each participant sends their secret shares (encrypted) to all other participants. The group public key is reconstructed using Lagrange Interpolation from the participants' public key shares.
+
+Key points:
+- The private key is never fully reconstructed.
+- The protocol is secure as long as fewer than T participants are compromised.
+- All participants must agree on the final public key.
 
 ### Signing
 
-1. **Initialization**: Each participant starts with their share of the secret key and the message to be signed. The `PartyRoutine` initializes the signing process for each participant with no input messages.
-2. **Nonce Generation and Sharing**: Each participant generates a random nonce pair (one for the public part and one for the private part) to be used in the signing process.
-3. **Partial Signature Generation**: Each participant uses their private key share and the nonces (both their own and the ones received from others) to generate a partial signature on the message.
+1. **Initialization**: Each participant prepares by loading their secret key share and the message to be signed. Participants generate random nonces ($D_i$ and $E_i$) and send commitments to these nonces to all other participants.
+2. **Nonce Generation and Partial Signature Computation**: Participants compute a shared nonce ($R$) by combining all received nonce commitments. They compute a challenge ($c$) based on the aggregated nonce, the group public key, and the message. Each participant computes their partial signature using their Lagrange-weighted secret key share, the challenge, and their nonce. These partial signatures are sent to any party who acts as the designated combiner.
+3. **Signature Combination**: Any party can aggregate the partial signatures from $T$ other parties to form the final signature `(R, s)`. The final signature is verified to ensure its validity against the group public key.
 
-Participants send their partial signature to a designated combiner (or each other with the peer-to-peer approach). The partial signatures are combined to create the final signature.
+Key points:
+- The full private key is never reconstructed during signing.
+- A minimum of $T+1$ participants is required to generate a valid signature, $T$ plus the combiner.
+- The final signature can be verified using standard Ed25519 verification methods.
 
-**Requirement for $T+1$ Participants**:
+**Requirement for $T+1$ Signers**:
 
-In the FROST implementation, the slice of party IDs involved in the signing process must be of length at least $T+1$. This is presumably a requirement from Shamir's Secret Sharing for sufficient shares to reconstruct the group secret.
+The Threshold T defines the maximum number of parties that may be corrupted. I.e. if we have N=5 and T=2, we require at least 3 participants to sign. In other words, we require T+1 participants to sign a message.
 
 ### Combining Partial Signatures for Schnorr Signatures
 
-1. **Aggregation of Nonces**: The combiner aggregates the public nonces received from all participants. The aggregated nonce $R$ is computed as $R = \sum_{i} R_i$, where $R_i$ are the public nonces from each participant.
+1. **Aggregation of Nonces**: Any party can be a combiner, to do so, it aggregates the public nonces received from all participants. The aggregated nonce $R$ is computed as $R = \sum_{i} R_i$, where $R_i$ are the public nonces from each participant.
 2. **Message Hashing**: The combiner hashes the aggregated nonce $R $, the group public key $Y$, and the message $m$ to compute the challenge $c$. The challenge $c$ is computed as $c = H(R \| Y \| m)$, where $H$ is a cryptographic hash function.
 3. **Combination of Partial Signatures**: Each participant's partial signature $s_i$ is combined by the combiner to form the final signature. The final signature $s$ is computed as $s = \sum_{i} s_i$.
 4. **Verification**: The final signature $s$ is verified by checking that $s \cdot G = R + c \cdot Y$, where $G$ is the base point of the elliptic curve, $R$ is the aggregated nonce, $c$ is the challenge, and $Y$ is the public key.
@@ -98,57 +135,25 @@ In the FROST implementation, the slice of party IDs involved in the signing proc
 
 ## Combining Partial Signatures for Ed25519 using Ristretto encoding
 
-Ed25519 includes a cofactor of 8 in its calculations as seen above. Ristretto encoding maps points on the Edwards25519 curve to a prime-order subgroup, effectively removing the cofactor and the associated small subgroups. Meaning, for Ed25519, this process is slightly different from the traditional Schnorr signatures. Ristretto can be used to encode all the curve points including the public keys, nonces, and the final signature.
+Ed25519 includes a cofactor of 8 in its calculations as seen above. Ristretto encoding maps points on the Edwards25519 curve to a prime-order subgroup, effectively removing the cofactor and the associated small subgroups. The protocol for combining partial signatures is similar to the Schnorr case, with the following steps:
 
-1. **Aggregation of Nonces**: The combiner aggregates the public nonces received from all participants. Each nonce is a Ristretto point. The aggregated nonce $R$ is computed as:
+- **Nonce Aggregation**: The party that combines signatures, aggregates public nonces $R_i$ from $T$ participants. The combined nonce $R$ is calculated as $R = \sum R_i$.
+- **Challenge Calculation**: The combiner computes the challenge $c = H(R \| Y \| m)$, where $Y$ is the group public key and $m$ is the message.
+- **Partial Signature Combination**: Each participant’s partial signature $s_i$ is aggregated: $s = \sum s_i$. The final signature is $(R, s)$, where $R$ is the aggregated nonce and $s$ is the combined scalar.
+- **Verification**: Verify the signature using $[s]B = R + [c]Y$, with all points and operations in the Ristretto encoding.
 
-$$R = R_1 + R_2 + \ldots + R_n$$
-
-Where $R_i$ are the individual public nonces, and '+' denotes Ristretto point addition.
-
-2. **Challenge Computation**: The combiner computes the challenge $c$ as:
-
-$$c = H(R \| Y \| m)$$
-
-Where:
-- $H$ is the hash function, e.g. SHA-512
-- $R$ is the encoded aggregated Ristretto point
-- $Y$ is the encoded group public key (also a Ristretto point)
-- $m$ is the message to be signed
-
-3. **Combination of Partial Signatures**:
-Each participant's partial signature $s_i$ (a Ristretto scalar) is combined to form the final signature scalar $s$:
-
-$$s = s_1 + s_2 + \ldots + s_n$$
-
-Where '+' denotes scalar addition in the Ristretto scalar field.
-
-4. **Signature Encoding**: The final signature is the pair $(R, s)$, where:
-- $R$ is the encoded aggregated nonce (32 bytes)
-- $s$ is the encoded combined signature scalar (32 bytes)
-
-5. **Signature Verification**:
-The signature $(R, s)$ is verified by checking:
-
-$$[s]B = R + [c]Y$$
-
-Where:
-- $B$ is the Ristretto basepoint
-- $[s]B$ and $[c]Y$ denote Ristretto scalar multiplication
-- '+' is Ristretto point addition
-- All points are in their Ristretto-encoded form
-
-The verification equation doesn't include the cofactor of 8 explicitly, as the Ristretto encoding handles the cofactor internally.
+Using Ristretto ensures the signature operates within the prime-order subgroup, mitigating small subgroup vulnerabilities inherent in Ed25519.
 
 ### Messages and complexity
-- Each participant sends messages to all other participants in the first round, leading to a total of N * (N - 1) messages (where N is the number of participants).
-- For the second round, it is reduced due to the specific protocol requirements, leading to N * (N - 1) / 2 messages, reflecting a point-to-point communication pattern.
+
+- Each participant sends messages to all other participants in the first round, leading to a total of $N \times (N - 1)$ messages (where $N$ is the number of participants).
+- For the second round, it is reduced due to the specific protocol requirements, leading to $N \times (N - 1) / 2$ messages, i.e. point-to-point communication.
 
 ## Secret Shares vs. Full Key
 
 There are secret shares generated by each participant during the key generation phase. Each participant ends up with a share of the overall secret key (not the full key itself). These shares are necessary for the threshold-based signing.
 
-A partial leak doesn't compromise the validity of the signature scheme, it does however undermine its security. The key is compromised if enough shares leak to meet or exceed the threshold T.
+A partial leak doesn't compromise the validity of the signature scheme, it does however undermine its security. The key is compromised if enough shares leak to meet or exceed the threshold $T$.
 
 ### Public Information
 
@@ -163,56 +168,12 @@ This enables for all participants to verify partial signatures from others durin
 
 ### Lagrange Interpolation for Secret Sharing
 
-Participants verify that their secret shares combine correctly to form the expected group public key by using Lagrange interpolation. The core idea is based on the fact that a polynomial of degree T-1 is uniquely determined by T points on that polynomial.
+Lagrange Interpolation is used to reconstruct a polynomial from a given set of points. Participants verify that their secret shares combine correctly to form the expected group public key by using Lagrange interpolation. A polynomial of degree T-1 is uniquely determined by T points on that polynomial, i.e. the secret can be reconstructed only when a threshold number of shares are combined.
 
-Public Key Verification:
-- Each share $k_i$ corresponds to a partial public key $K_i = g^{k_i} $, where $g$ is the generator of the elliptic curve group.
+It is used in SignRound0 to compute weighted public key shares and normalize the secret key share. In SignRound2, the verification ensures the reconstructed public key matches the expected value.
 
-To verify the distributed key generation, we use Lagrange interpolation to combine the public key shares and check that they match the expected group public key $K$.
+- **Calculate Lagrange Coefficients**: Compute coefficients $\lambda_i$ for each participant, which weight their contributions to the combined public key.
+- **Combine Public Key Shares**: Each participant's public key share $A_i$ (a Ristretto point) is multiplied by its corresponding coefficient. The group public key $A$ is reconstructed by summing these weighted shares: $A = \sum \lambda_i \cdot A_i$.
+- **Verification**: The reconstructed group public key $A$ is compared to the expected group public key to ensure consistency.
 
-Verification Process:
-- **Lagrange Coefficients:** Calculate the coefficients $\lambda_i$ for combining the public key shares.
-- **Combine Public Key Shares:** Use the Lagrange coefficients to combine the public key shares $K_i$:
-
-$$K = \prod_{i=1}^{t} K_i^{\lambda_i}$$
-
-- **Match Expected Public Key:** Compare the combined public key $K$ to the expected group public key $G$. If they match, the distributed key shares are verified to be correct.
-
-These principle remains the same for Schnorr and Ristretto points and encoding.
-- Operations would be in the Ristretto prime-order group, implicitly handling the cofactor.
-- Point multiplication would be represented as scalar multiplication of Ristretto points.
-- The product operation would be replaced with a sum of Ristretto points.
-
-Public Key Verification:
-- Each share $k_i$ corresponds to a partial public key $A_i = [k_i]B$, where $B$ is the basepoint of the Edwards25519 curve.
-
-To verify the distributed key generation, we use Lagrange interpolation to combine the public key shares and check that they match the expected group public key $A$.
-
-Verification Process:
-1. **Lagrange Coefficients**: Calculate the coefficients $\lambda_i$ for combining the public key shares.
-
-2. **Combine Public Key Shares**: Use the Lagrange coefficients to combine the public key shares $A_i$:
-
-$$A_{\text{combined}} = \sum_{i=1}^{t} \lambda_i \cdot A_i$$
-
-For the Edwards curve context, use point addition instead of multiplication.
-
-3. **Match Expected Public Key**: Compare the combined public key $A_{\text{combined}}$ to the expected group public key $A$. If they match, the distributed key shares are verified to be correct.
-
-The verification is successful if:
-
-$$A_{\text{combined}} = A$$
-
-## Usage
-
-```sh
-make keygen
-make sign
-# Verify the signature against an older version of this readme.
-go run ./cmd/verify d70758d8211284be5318d6df183766f197516d408b0effec65bd908224e828a8 9d1024def2c31eb10b5d883f2cebeea43d37a8bff115e92c7b1d9cb57fce79887cfd4aaf3c2a149dc7ec3808f68d9290159e924729dc9d59d946b6a5c0728707 ./README.md
-Signature is valid.
-```
-
-## Dependencies
-
-The package has a minimal set of third-party dependencies, mainly Filippo Valsorda's [filippo.io/edwards25519](https://github.com/FiloSottile/edwards25519) for lower level operations on the Edwards25519 curve that are not provided by the `crypto/ed25519` standard library package.
+The operations are performed in the Ristretto prime-order group, implicitly handling the cofactor.

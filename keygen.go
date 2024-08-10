@@ -1,4 +1,4 @@
-package messages
+package frost
 
 import (
 	"encoding/base64"
@@ -6,15 +6,15 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/bartke/threshold-signatures-ed25519/eddsa"
-	"github.com/bartke/threshold-signatures-ed25519/party"
-	"github.com/bartke/threshold-signatures-ed25519/polynomial"
-	"github.com/bartke/threshold-signatures-ed25519/ristretto"
-	"github.com/bartke/threshold-signatures-ed25519/scalar"
-	"github.com/bartke/threshold-signatures-ed25519/zk"
+	"github.com/bartke/frost/eddsa"
+	"github.com/bartke/frost/party"
+	"github.com/bartke/frost/polynomial"
+	"github.com/bartke/frost/ristretto"
+	"github.com/bartke/frost/scalar"
+	"github.com/bartke/frost/zk"
 )
 
-type State struct {
+type KeygenState struct {
 	SelfID         party.ID
 	PartyIDs       party.IDSlice
 	Threshold      party.Size
@@ -24,7 +24,7 @@ type State struct {
 	CommitmentsSum *polynomial.Exponent
 }
 
-func (s *State) MarshalJSON() ([]byte, error) {
+func (s *KeygenState) MarshalJSON() ([]byte, error) {
 	idBytes := s.SelfID.Bytes()
 	polyntBytes, err := s.Polynomial.MarshalBinary()
 	if err != nil {
@@ -69,7 +69,7 @@ func (s *State) MarshalJSON() ([]byte, error) {
 	})
 }
 
-func (s *State) UnmarshalJSON(data []byte) error {
+func (s *KeygenState) UnmarshalJSON(data []byte) error {
 	aux := &struct {
 		ID             string            `json:"id"`
 		PartyIDs       party.IDSlice     `json:"party_ids"`
@@ -146,14 +146,14 @@ func (s *State) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// Round 0: Initializing participants
-func Round0(selfID party.ID, n, t party.Size) (*Message, *State, error) {
+// KeygenInit initializing participants.
+func KeygenInit(selfID party.ID, n, t party.Size) (*Message, *KeygenState, error) {
 	partyIDs := make([]party.ID, 0, n)
 	for i := party.ID(1); i <= n; i++ {
 		partyIDs = append(partyIDs, i)
 	}
 
-	state := &State{
+	state := &KeygenState{
 		SelfID:    selfID,
 		PartyIDs:  partyIDs,
 		Threshold: t,
@@ -175,8 +175,8 @@ func Round0(selfID party.ID, n, t party.Size) (*Message, *State, error) {
 	return NewKeyGen1(selfID, proof, state.CommitmentsSum), state, nil
 }
 
-// Round 1: Processing KeyGen1 messages and generating KeyGen2 messages
-func Round1(state *State, inputMsgs []*Message) ([]*Message, *State, error) {
+// KeygenRound1 generates KeyGen2 messages.
+func KeygenRound1(state *KeygenState, inputMsgs []*Message) ([]*Message, *KeygenState, error) {
 	// process KeyGen1 messages
 	for _, msg := range inputMsgs {
 		id := msg.From
@@ -216,8 +216,8 @@ func Round1(state *State, inputMsgs []*Message) ([]*Message, *State, error) {
 	return msgsOut, state, nil
 }
 
-// Round 2: Processing KeyGen2 messages and finalizing the key generation
-func Round2(state *State, inputMsgs []*Message) (*eddsa.Public, *eddsa.SecretShare, error) {
+// KeygenRound2 generates public and secret keys.
+func KeygenRound2(state *KeygenState, inputMsgs []*Message) (*eddsa.Public, *eddsa.SecretShare, error) {
 	// process KeyGen2 messages
 	for _, msg := range inputMsgs {
 		if msg.Type != MessageTypeKeyGen2 {

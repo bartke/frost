@@ -1,4 +1,4 @@
-module github.com/bartke/threshold-signatures-ed25519
+module github.com/bartke/frost
 
 go 1.22.2
 

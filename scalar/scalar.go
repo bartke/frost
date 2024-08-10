@@ -4,7 +4,7 @@ import (
 	"crypto/rand"
 	"fmt"
 
-	"github.com/bartke/threshold-signatures-ed25519/ristretto"
+	"github.com/bartke/frost/ristretto"
 )
 
 // SetScalarRandom sets s to a random ristretto.Scalar using the default randomness source from crypto/rand

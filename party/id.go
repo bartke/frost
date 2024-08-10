@@ -8,7 +8,7 @@ import (
 	"math/rand"
 	"strconv"
 
-	"github.com/bartke/threshold-signatures-ed25519/ristretto"
+	"github.com/bartke/frost/ristretto"
 )
 
 // IDByteSize is the number of bytes required to store and ID or Size

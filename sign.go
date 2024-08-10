@@ -1,4 +1,4 @@
-package messages
+package frost
 
 import (
 	"crypto/sha512"
@@ -7,10 +7,10 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/bartke/threshold-signatures-ed25519/eddsa"
-	"github.com/bartke/threshold-signatures-ed25519/party"
-	"github.com/bartke/threshold-signatures-ed25519/ristretto"
-	"github.com/bartke/threshold-signatures-ed25519/scalar"
+	"github.com/bartke/frost/eddsa"
+	"github.com/bartke/frost/party"
+	"github.com/bartke/frost/ristretto"
+	"github.com/bartke/frost/scalar"
 )
 
 // A signer represents the state we store for one particular
@@ -217,7 +217,8 @@ func (s *SignerState) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-func SignRound0(signerIDs party.IDSlice, secret *eddsa.SecretShare, shares *eddsa.Public, message []byte) (*Message, *SignerState, error) {
+// SignInit initializes the state for the signing protocol.
+func SignInit(signerIDs party.IDSlice, secret *eddsa.SecretShare, shares *eddsa.Public, message []byte) (*Message, *SignerState, error) {
 	if !signerIDs.Contains(secret.ID) {
 		return nil, nil, errors.New("SignRound0: owner of SecretShare is not contained in partyIDs")
 	}
@@ -276,6 +277,7 @@ func SignRound0(signerIDs party.IDSlice, secret *eddsa.SecretShare, shares *edds
 	return msg, state, nil
 }
 
+// SignRound1 processes the first round of the signing protocol.
 func SignRound1(state *SignerState, inputMsgs []*Message) (*Message, *SignerState, error) {
 	// Process Sign1 messages
 	for _, msg := range inputMsgs {
@@ -303,7 +305,6 @@ func SignRound1(state *SignerState, inputMsgs []*Message) (*Message, *SignerStat
 		// Ri = Di + [ρi] Ei
 		p.Ri.ScalarMult(&p.Pi, &p.Ei)
 		p.Ri.Add(&p.Ri, &p.Di)
-		// fmt.Printf("[%d] Ri = %v\n", id, p.Ri)
 
 		// R += Ri
 		state.R.Add(&state.R, &p.Ri)
@@ -313,15 +314,14 @@ func SignRound1(state *SignerState, inputMsgs []*Message) (*Message, *SignerStat
 	// fmt.Printf("R: %v\n", state.R)
 
 	// c = H(R, GroupKey, M)
-	// fmt.Printf("GroupKey: %v\n", state.GroupKey)
 	state.C.Set(eddsa.ComputeChallenge(&state.R, &state.GroupKey, state.Message))
 
 	// the challenge c must be the same for all parties
-	// fmt.Printf("C: %v\n", state.C)
 
 	selfParty := state.Signers[state.SelfID]
 
-	// Compute z = d + (e • ρ) + 𝛌 • s • c
+	// Compute partial signature:
+	// z = d + (e • ρ) + 𝛌 • s • c
 	// Note: since we multiply the secret by the Lagrange coefficient,
 	// can ignore 𝛌=1
 	secretShare := &selfParty.Zi
@@ -333,6 +333,7 @@ func SignRound1(state *SignerState, inputMsgs []*Message) (*Message, *SignerStat
 	return msg, state, nil
 }
 
+// SignRound2 computes the final signature.
 func SignRound2(state *SignerState, inputMsgs []*Message) (*eddsa.Signature, *SignerState, error) {
 	// Process Sign2 messages
 	for _, msg := range inputMsgs {
@@ -346,22 +347,9 @@ func SignRound2(state *SignerState, inputMsgs []*Message) (*eddsa.Signature, *Si
 			return nil, nil, fmt.Errorf("SignRound2: party %d not found in shares", id)
 		}
 
-		// fmt.Printf("Computing signature share for party %d from party %d\n", state.SelfID, id)
-
 		var publicNeg, RPrime, ZiB ristretto.Element
 		publicNeg.Negate(&otherParty.Public)
-		// fmt.Printf("C: %v\n", state.C)
 
-		/*
-			// RPrime = [c](-A) + [s]B
-			RPrime.VarTimeDoubleScalarBaseMult(&state.C, &publicNeg, &msg.Sign2.Zi)
-			if RPrime.Equal(&otherParty.Ri) != 1 {
-				fmt.Printf("111  Calculated RPrime2: %v\n", RPrime)
-				return nil, nil, errors.New("signature share is invalid")
-			}
-
-			var ZiB, RPrime2 ristretto.Element
-		*/
 		// RPrime = [c](-A) + [zi]B
 		ZiB.ScalarBaseMult(&msg.Sign2.Zi)
 		RPrime.ScalarMult(&state.C, &publicNeg)

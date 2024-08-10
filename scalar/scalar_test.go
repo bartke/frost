@@ -3,7 +3,7 @@ package scalar
 import (
 	"testing"
 
-	"github.com/bartke/threshold-signatures-ed25519/ristretto"
+	"github.com/bartke/frost/ristretto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

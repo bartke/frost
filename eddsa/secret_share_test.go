@@ -3,7 +3,7 @@ package eddsa
 import (
 	"testing"
 
-	"github.com/bartke/threshold-signatures-ed25519/scalar"
+	"github.com/bartke/frost/scalar"
 )
 
 // sign generates an Ed25519 compatible signature for the message.
